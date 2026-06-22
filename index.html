@@ -290,44 +290,44 @@
       <div class="panel-header">
         <h2 class="panel-title">Options Scanner</h2>
         <div class="panel-actions">
-          <span class="phase-badge" style="background:rgba(0,230,118,0.1);border-color:var(--green);color:var(--green)">PHASE 2 — LIVE</span>
+          <span class="phase-badge" style="background:rgba(0,230,118,0.1);border-color:var(--green);color:var(--green)">PHASE 3 — AI AGENTS LIVE</span>
         </div>
       </div>
 
       <!-- Sub-tabs -->
       <div class="scanner-tabs">
-        <button class="scanner-tab active" data-view="scan">Scan</button>
+        <button class="scanner-tab active" data-view="pipeline">AI Pipeline</button>
+        <button class="scanner-tab" data-view="scan">Manual Scan</button>
         <button class="scanner-tab" data-view="positions">Open Positions</button>
         <button class="scanner-tab" data-view="history">Trade History</button>
         <button class="scanner-tab" data-view="stats">Performance</button>
       </div>
 
-      <!-- VIEW: SCAN -->
-      <div class="scanner-view" id="scanner-view-scan">
-        <!-- Paper Portfolio Banner -->
-        <div class="paper-banner">
-          <div class="paper-banner-item">
-            <span class="paper-label">PAPER ACCOUNT</span>
-            <span class="paper-value" id="paperValue">$10,000.00</span>
-          </div>
-          <div class="paper-banner-divider"></div>
-          <div class="paper-banner-item">
-            <span class="paper-label">Cash Available</span>
-            <span class="paper-value" id="paperCash">$10,000.00</span>
-          </div>
-          <div class="paper-banner-divider"></div>
-          <div class="paper-banner-item">
-            <span class="paper-label">Total P&L</span>
-            <span class="paper-value" id="paperTotalPL">$0.00</span>
-          </div>
-          <div class="paper-banner-divider"></div>
-          <div class="paper-banner-item">
-            <span class="paper-label">Open Positions</span>
-            <span class="paper-value" id="paperOpenPos">0</span>
+      <!-- VIEW: AI PIPELINE -->
+      <div class="scanner-view" id="scanner-view-pipeline">
+        <div class="pipeline-controls">
+          <button class="btn btn--primary pipeline-run-btn" id="runPipelineBtn">▶ Run AI Pipeline</button>
+          <span class="pipeline-desc">Runs all 6 agents — Macro → Sector → Research → Risk → CIO → You</span>
+        </div>
+        <div id="pipelineContainer">
+          <div class="pipeline-idle">
+            <div class="pipeline-idle-icon">◈</div>
+            <div class="pipeline-idle-text">Pipeline ready. Add tickers to your watchlist and run the AI analysis.</div>
           </div>
         </div>
+      </div>
 
-        <!-- Scan Controls -->
+      <!-- VIEW: MANUAL SCAN -->
+      <div class="scanner-view" id="scanner-view-scan" style="display:none">
+        <div class="paper-banner">
+          <div class="paper-banner-item"><span class="paper-label">PAPER ACCOUNT</span><span class="paper-value" id="paperValue">$10,000.00</span></div>
+          <div class="paper-banner-divider"></div>
+          <div class="paper-banner-item"><span class="paper-label">Cash Available</span><span class="paper-value" id="paperCash">$10,000.00</span></div>
+          <div class="paper-banner-divider"></div>
+          <div class="paper-banner-item"><span class="paper-label">Total P&L</span><span class="paper-value" id="paperTotalPL">$0.00</span></div>
+          <div class="paper-banner-divider"></div>
+          <div class="paper-banner-item"><span class="paper-label">Open Positions</span><span class="paper-value" id="paperOpenPos">0</span></div>
+        </div>
         <div class="scan-controls">
           <div class="scan-single">
             <input type="text" id="singleTickerInput" class="input-ticker" placeholder="Single ticker..." maxlength="6" />
@@ -335,15 +335,8 @@
           </div>
           <button class="btn btn--primary" id="runScanBtn">▶ Scan Watchlist</button>
         </div>
-
-        <div class="scan-note">
-          IV is estimated using Black-Scholes with 30% baseline. Connect a paid options data provider in Phase 4 for live Greeks.
-        </div>
-
-        <!-- Results -->
-        <div id="scanResults">
-          <div class="empty-scan">Run a scan to see options setups from your watchlist.</div>
-        </div>
+        <div class="scan-note">IV is estimated using Black-Scholes with 30% baseline. Use AI Pipeline for full agent analysis.</div>
+        <div id="scanResults"><div class="empty-scan">Run a scan to see options setups from your watchlist.</div></div>
       </div>
 
       <!-- VIEW: OPEN POSITIONS -->
@@ -870,6 +863,9 @@
   <script src="js/paper-trading.js"></script>
   <script src="js/options-scanner.js"></script>
   <script src="js/robinhood-sync.js"></script>
+  <script src="js/agent-prompts.js"></script>
+  <script src="js/pipeline.js"></script>
+  <script src="js/agent-ui.js"></script>
   <script src="js/scanner.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/watchlist.js"></script>
