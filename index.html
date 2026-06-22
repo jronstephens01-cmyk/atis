@@ -581,22 +581,50 @@
     <!-- TAB: BACKTEST -->
     <section class="tab-panel" id="tab-backtest">
       <div class="panel-header">
-        <h2 class="panel-title">Backtesting</h2>
+        <h2 class="panel-title">Backtesting Engine</h2>
         <div class="panel-actions">
-          <span class="phase-note">Engine active in Phase 4</span>
+          <span class="phase-badge" style="background:rgba(0,230,118,0.1);border-color:var(--green);color:var(--green)">PHASE 4 — LIVE</span>
         </div>
       </div>
-      <div class="coming-soon-block">
-        <div class="coming-soon-icon">◈</div>
-        <div class="coming-soon-title">Backtesting Engine</div>
-        <div class="coming-soon-text">Historical simulation engine with walk-forward validation and Monte Carlo testing. Built in Phase 4 after the agent framework is operational.</div>
-        <div class="coming-soon-phases">
-          <span class="phase-chip phase-chip--active">Phase 1: Data ←</span>
-          <span class="phase-chip">Phase 2: Portfolio</span>
-          <span class="phase-chip">Phase 3: Agents</span>
-          <span class="phase-chip">Phase 4: Backtest</span>
+
+      <!-- Controls -->
+      <div class="bt-controls">
+        <div class="bt-controls-grid">
+          <div class="form-group">
+            <label>Strategy</label>
+            <select id="backtestStrategy"></select>
+          </div>
+          <div class="form-group">
+            <label>Start Date</label>
+            <input type="date" id="backtestStart" value="2022-01-01" />
+          </div>
+          <div class="form-group">
+            <label>End Date</label>
+            <input type="date" id="backtestEnd" value="2024-12-31" />
+          </div>
+          <div class="form-group">
+            <label>Saved Backtests</label>
+            <select id="savedBacktests"></select>
+          </div>
+        </div>
+        <div class="bt-strategy-desc" id="strategyDesc"></div>
+        <div class="bt-controls-footer">
+          <button class="btn btn--primary" id="runBacktestBtn">▶ Run Backtest</button>
+          <span class="bt-note">Uses your watchlist tickers (max 5). Requires historical data from Worker.</span>
         </div>
       </div>
+
+      <!-- Progress -->
+      <div class="bt-progress" id="backtestProgress" style="display:none">
+        <div class="bt-progress-bar-wrap">
+          <div class="bt-progress-bar" id="backtestProgressBar" style="width:0%"></div>
+        </div>
+        <div class="bt-progress-text" id="backtestProgressText">Starting...</div>
+      </div>
+
+      <!-- Results -->
+      <div id="backtestResultsArea"></div>
+
     </section>
 
     <!-- TAB: AGENTS -->
@@ -864,9 +892,12 @@
   <script src="js/options-scanner.js"></script>
   <script src="js/robinhood-sync.js"></script>
   <script src="js/agent-prompts.js"></script>
+  <script src="js/agent-prompts-p4.js"></script>
   <script src="js/pipeline.js"></script>
   <script src="js/agent-ui.js"></script>
   <script src="js/scanner.js"></script>
+  <script src="js/backtest.js"></script>
+  <script src="js/backtest-ui.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/watchlist.js"></script>
   <script src="js/macro.js"></script>
