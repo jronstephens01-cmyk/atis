@@ -146,8 +146,30 @@
         <div class="panel-actions">
           <input class="input-ticker" type="text" id="tickerInput" placeholder="Add ticker (e.g. AAPL)" maxlength="6" />
           <button class="btn btn--primary" id="addTickerBtn">+ Add</button>
+          <button class="btn btn--secondary" id="bulkAddBtn">⚡ Quick Add 50</button>
+          <button class="btn btn--danger" id="clearWatchlistBtn">✕ Clear All</button>
         </div>
       </div>
+
+      <!-- Bulk Add Panel -->
+      <div id="bulkAddPanel" style="display:none;background:var(--bg-raised);border:1px solid var(--cyan-dim);border-radius:var(--radius-md);padding:16px;margin-bottom:16px">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--cyan);letter-spacing:0.1em;margin-bottom:12px">⚡ QUICK ADD — CLICK PRESETS OR PASTE YOUR OWN</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <button class="btn btn--secondary" onclick="Watchlist.addPreset('top50')">Top 50 Options Plays</button>
+          <button class="btn btn--secondary" onclick="Watchlist.addPreset('megacap')">Mega Cap Tech</button>
+          <button class="btn btn--secondary" onclick="Watchlist.addPreset('etfs')">Sector ETFs</button>
+          <button class="btn btn--secondary" onclick="Watchlist.addPreset('finance')">Finance</button>
+          <button class="btn btn--secondary" onclick="Watchlist.addPreset('healthcare')">Healthcare</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="bulkTickerInput"
+            placeholder="Or paste comma-separated: AAPL, MSFT, NVDA, ..."
+            style="flex:1;background:var(--bg-surface);border:1px solid var(--border-bright);border-radius:var(--radius-sm);padding:8px 12px;font-family:var(--font-mono);font-size:12px;color:var(--text-primary)" />
+          <button class="btn btn--primary" onclick="Watchlist.addBulkFromInput()">Add</button>
+          <button class="btn btn--secondary" onclick="document.getElementById('bulkAddPanel').style.display='none'">✕</button>
+        </div>
+      </div>
+
       <div class="table-wrapper">
         <table class="data-table" id="watchlistTable">
           <thead>
@@ -162,7 +184,7 @@
             </tr>
           </thead>
           <tbody id="watchlistBody">
-            <tr class="empty-row"><td colspan="7">No tickers added. Start by adding a ticker above.</td></tr>
+            <tr class="empty-row"><td colspan="7">No tickers added. Use Quick Add 50 to get started.</td></tr>
           </tbody>
         </table>
       </div>
