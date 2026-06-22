@@ -107,9 +107,10 @@ const App = {
     Journal.init();
     Reports.init();
     Agents.init();
-    Scanner.init();       // Phase 2
-    OptionsScanner.init(); // Phase 2
-    BacktestUI.init();    // Phase 4
+    Scanner.init();
+    OptionsScanner.init();
+    BacktestUI.init();
+    Phase5UI.init();
   },
 
   // Periodic background checks (every 5 minutes)
