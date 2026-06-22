@@ -6,6 +6,16 @@ const Scanner = {
   selectedContract: null,
 
   init() {
+    // Pipeline controls
+    document.getElementById('runPipelineBtn')?.addEventListener('click', () => {
+      const watchlist = Storage.getWatchlist().filter(t => !t.startsWith('^'));
+      if (!watchlist.length) {
+        Utils.toast('Add tickers to your watchlist first', 'warn');
+        return;
+      }
+      Pipeline.run(watchlist);
+    });
+
     // Scanner controls
     document.getElementById('runScanBtn')?.addEventListener('click', Scanner.runScan);
     document.getElementById('scanTickerBtn')?.addEventListener('click', Scanner.scanSingleTicker);
@@ -26,6 +36,9 @@ const Scanner = {
         Scanner.switchView(btn.dataset.view);
       });
     });
+
+    // Default to pipeline view
+    Scanner.switchView('pipeline');
 
     Scanner.renderPaperPositions();
     Scanner.renderPaperStats();
