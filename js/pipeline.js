@@ -1,4 +1,4 @@
-// pipeline.js — Agent Pipeline Orchestrator for ATIS Phase 3
+// pipeline.js — Agent Pipeline Orchestrator for ATIS Phase 4
 
 const Pipeline = {
 
@@ -87,7 +87,16 @@ const Pipeline = {
       }
       AgentUI.setAgentStatus('agent3', 'complete', `${filteredCandidates.length} candidates passed sector filter`);
 
-      const topCandidate = filteredCandidates[0];
+      // Rotate candidates so we don't always analyze the same ticker
+      const scanLog = Storage.get('atis_scanLog') || [];
+      const lastTicker = scanLog[0]?.ticker;
+      const rotated = filteredCandidates.filter(c => c.ticker !== lastTicker);
+      const topCandidate = rotated.length ? rotated[0] : filteredCandidates[0];
+
+      // Log this scan's ticker for rotation
+      scanLog.unshift({ ticker: topCandidate.ticker, date: new Date().toISOString() });
+      Storage.set('atis_scanLog', scanLog.slice(0, 20));
+
       AgentUI.setAgentStatus('agent2', 'running', `Analyzing ${topCandidate.ticker}...`);
       const researchResult = await Pipeline.callAgent('agent2', AGENT_PROMPTS.researchAnalyst, {
         task: 'analyze_candidate',
@@ -337,12 +346,17 @@ const Pipeline = {
         assetType: tradeData.assetType,
         strategyName: tradeData.setupType,
         marketRegime: tradeData.marketRegime,
-        entryPrice: null,
+        entryPrice: tradeData.executionLimit || null,
         exitPrice: null,
-        positionSize: null,
+        positionSize: tradeData.optionsContracts || null,
         stopLoss: tradeData.stopLoss,
         target: tradeData.target,
         totalScore: tradeData.totalScore,
+        optionsStrategy: tradeData.optionsStrategy,
+        optionsStrike: tradeData.optionsStrike,
+        optionsExpiry: tradeData.optionsExpiry,
+        optionsPremium: tradeData.optionsPremium,
+        orderInstructions: tradeData.orderInstructions,
         status: 'open',
         result: null,
         timestamp: Date.now()
