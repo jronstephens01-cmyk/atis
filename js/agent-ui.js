@@ -27,6 +27,11 @@ const AgentUI = {
         ${AgentUI.renderStep('agent2',  '02', 'Research Analyst',  'Technical + fundamental analysis')}
         ${AgentUI.renderStep('agent5',  '05', 'Risk Manager',      'Position sizing + risk check')}
         ${AgentUI.renderStep('agent14', '14', 'Chief Investment Officer', 'Generating recommendation')}
+        ${AgentUI.renderStep('agent4',  '04', 'Quant Researcher',  'Statistical validation')}
+        ${AgentUI.renderStep('agent16', '16', 'Options Specialist', 'Options analysis')}
+        ${AgentUI.renderStep('agent6',  '06', 'Compliance Officer', 'Rule compliance check')}
+        ${AgentUI.renderStep('agent7',  '07', 'Execution Specialist', 'Order structuring')}
+        ${AgentUI.renderStep('agent17', '17', 'AI Strategy Director', 'Strategy review')}
       </div>
       <div id="approvalGate" style="display:none"></div>
       <div id="pipelineError" style="display:none"></div>
