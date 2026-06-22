@@ -107,8 +107,8 @@ const App = {
     Journal.init();
     Reports.init();
     Agents.init();
-
-    // Modules not yet active in Phase 1 (scanner, backtest) need no init
+    Scanner.init();       // Phase 2
+    OptionsScanner.init(); // Phase 2
   },
 
   // Periodic background checks (every 5 minutes)
