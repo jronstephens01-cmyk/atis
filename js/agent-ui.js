@@ -132,21 +132,25 @@ const AgentUI = {
     const gate = document.getElementById('approvalGate');
     if (!gate) return;
 
-    const alert = cioResult.tradeAlert || {};
-    const scores = cioResult.scores || {};
-    const scoreColor = Scoring.scoreColor(scores.total);
+    const alert    = cioResult.tradeAlert || {};
+    const scores   = cioResult.scores || {};
+    const options  = Pipeline.state.results?.optionsAnalysis || {};
+    const execution = Pipeline.state.results?.executionPlan || {};
+    const scoreColor     = Scoring.scoreColor(scores.total);
     const isHighConviction = scores.total >= 50;
-    const isQualified = scores.total >= 42;
+    const isQualified      = scores.total >= 42;
 
     gate.style.display = 'block';
     gate.innerHTML = `
       <div class="approval-gate">
+
+        <!-- Header -->
         <div class="approval-header">
           <div class="approval-badge ${isHighConviction ? 'badge--high' : isQualified ? 'badge--qualified' : 'badge--monitor'}">
             ${cioResult.scoreLabel}
           </div>
           <div class="approval-score" style="color:${scoreColor}">${scores.total}/60</div>
-          <div class="approval-title">RECOMMENDATION: ${alert.ticker} — ${(alert.assetType || '').toUpperCase()}</div>
+          <div class="approval-title">RECOMMENDATION: ${alert.ticker || candidate.ticker} — ${(alert.assetType || 'EQUITY').toUpperCase()}</div>
         </div>
 
         <!-- Score Breakdown -->
@@ -159,16 +163,109 @@ const AgentUI = {
           ${AgentUI.renderScoreBar('Macro',       scores.macro)}
         </div>
 
-        <!-- Trade Alert -->
-        <div class="trade-alert-grid">
-          <div class="alert-field"><span class="alert-label">REGIME</span><span class="alert-val">${alert.marketRegime || '—'}</span></div>
-          <div class="alert-field"><span class="alert-label">ENTRY ZONE</span><span class="alert-val positive">${alert.entryZone || '—'}</span></div>
-          <div class="alert-field"><span class="alert-label">STOP LOSS</span><span class="alert-val negative">${alert.stopLoss || '—'}</span></div>
-          <div class="alert-field"><span class="alert-label">TARGET</span><span class="alert-val positive">${alert.target || '—'}</span></div>
-          <div class="alert-field"><span class="alert-label">RISK/REWARD</span><span class="alert-val">${alert.riskReward || '—'}</span></div>
-          <div class="alert-field"><span class="alert-label">POSITION SIZE</span><span class="alert-val">${Utils.formatCurrency(riskResult.recommendedPositionDollar)}</span></div>
-          <div class="alert-field"><span class="alert-label">TIMEFRAME</span><span class="alert-val">${alert.timeframe || '—'}</span></div>
-          <div class="alert-field"><span class="alert-label">CONFIDENCE</span><span class="alert-val">${alert.confidenceLevel || '—'}</span></div>
+        <!-- OPTIONS DETAILS — Agent 16 output -->
+        <div class="alert-section" style="background:rgba(0,212,255,0.04);border-left:3px solid var(--cyan)">
+          <div class="alert-section-label" style="color:var(--cyan)">OPTIONS SETUP — AGENT 16 RECOMMENDATION</div>
+          <div class="trade-alert-grid" style="padding:12px 0 0 0">
+            <div class="alert-field">
+              <span class="alert-label">STRATEGY</span>
+              <span class="alert-val" style="color:var(--cyan)">${(options.recommendedStrategy || '—').replace('_',' ').toUpperCase()}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">STRIKE PRICE</span>
+              <span class="alert-val positive">$${options.recommendedStrike || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">EXPIRY DATE</span>
+              <span class="alert-val">${options.recommendedExpiry || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">PREMIUM (per share)</span>
+              <span class="alert-val">$${options.estimatedPremium || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">DELTA</span>
+              <span class="alert-val">${options.delta || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">BREAKEVEN</span>
+              <span class="alert-val">$${options.breakeven || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">MAX LOSS</span>
+              <span class="alert-val negative">$${options.maxLoss || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">PROB. OF PROFIT</span>
+              <span class="alert-val">${options.probabilityOfProfit ? Math.round(options.probabilityOfProfit * 100) + '%' : '—'}</span>
+            </div>
+          </div>
+          ${options.smallAccountWarnings?.length ? `
+            <div style="margin-top:10px;padding:8px;background:rgba(255,193,7,0.1);border-radius:3px;font-family:var(--font-mono);font-size:11px;color:var(--amber)">
+              ⚠ ${options.smallAccountWarnings.join(' | ')}
+            </div>` : ''}
+        </div>
+
+        <!-- EXECUTION ORDER — Agent 7 output -->
+        <div class="alert-section" style="background:rgba(0,230,118,0.03);border-left:3px solid var(--green-dim)">
+          <div class="alert-section-label" style="color:var(--green)">EXECUTION ORDER — AGENT 7 INSTRUCTIONS</div>
+          <div class="trade-alert-grid" style="padding:12px 0 0 0">
+            <div class="alert-field">
+              <span class="alert-label">ORDER TYPE</span>
+              <span class="alert-val">${(execution.orderType || 'LIMIT').toUpperCase()}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">LIMIT PRICE</span>
+              <span class="alert-val positive">$${execution.limitPrice || alert.entryZone || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">STOP PRICE</span>
+              <span class="alert-val negative">$${execution.stopPrice || alert.stopLoss || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">TARGET PRICE</span>
+              <span class="alert-val positive">$${execution.targetPrice || alert.target || '—'}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">CONTRACTS</span>
+              <span class="alert-val">${execution.contracts || 1}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">TOTAL COST</span>
+              <span class="alert-val">${Utils.formatCurrency(execution.totalCost || riskResult.recommendedPositionDollar)}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">MAX RISK</span>
+              <span class="alert-val negative">${Utils.formatCurrency(execution.maxRisk || riskResult.recommendedPositionDollar)}</span>
+            </div>
+            <div class="alert-field">
+              <span class="alert-label">ENTRY TIMING</span>
+              <span class="alert-val" style="font-size:11px">${execution.entryTiming || 'Avoid first 30 min'}</span>
+            </div>
+          </div>
+          ${execution.orderInstructions ? `
+            <div style="margin-top:10px;padding:8px;background:var(--bg-surface);border-radius:3px;font-size:12px;color:var(--text-secondary)">
+              📋 ${execution.orderInstructions}
+            </div>` : ''}
+          ${execution.smallAccountNote ? `
+            <div style="margin-top:6px;padding:8px;background:rgba(0,212,255,0.05);border-radius:3px;font-family:var(--font-mono);font-size:11px;color:var(--cyan)">
+              ℹ ${execution.smallAccountNote}
+            </div>` : ''}
+        </div>
+
+        <!-- Equity Trade Alert -->
+        <div class="alert-section">
+          <div class="alert-section-label">EQUITY TRADE DETAILS</div>
+          <div class="trade-alert-grid" style="padding:12px 0 0 0">
+            <div class="alert-field"><span class="alert-label">REGIME</span><span class="alert-val">${alert.marketRegime || '—'}</span></div>
+            <div class="alert-field"><span class="alert-label">ENTRY ZONE</span><span class="alert-val positive">${alert.entryZone || '—'}</span></div>
+            <div class="alert-field"><span class="alert-label">STOP LOSS</span><span class="alert-val negative">${alert.stopLoss || '—'}</span></div>
+            <div class="alert-field"><span class="alert-label">TARGET</span><span class="alert-val positive">${alert.target || '—'}</span></div>
+            <div class="alert-field"><span class="alert-label">RISK/REWARD</span><span class="alert-val">${alert.riskReward || '—'}</span></div>
+            <div class="alert-field"><span class="alert-label">POSITION SIZE</span><span class="alert-val">${Utils.formatCurrency(riskResult.recommendedPositionDollar)}</span></div>
+            <div class="alert-field"><span class="alert-label">TIMEFRAME</span><span class="alert-val">${alert.timeframe || '—'}</span></div>
+            <div class="alert-field"><span class="alert-label">CONFIDENCE</span><span class="alert-val">${alert.confidenceLevel || '—'}</span></div>
+          </div>
         </div>
 
         <!-- Thesis -->
@@ -185,7 +282,7 @@ const AgentUI = {
           <div class="alert-section-text">${alert.invalidation || '—'}</div>
         </div>
 
-        <!-- Decision Buttons -->
+        <!-- Decision -->
         <div class="approval-actions">
           <button class="btn btn--danger approval-btn-decline"
             onclick="AgentUI.recordDecision('declined')">
@@ -194,7 +291,7 @@ const AgentUI = {
           <button class="btn btn--primary approval-btn-approve"
             onclick="AgentUI.recordDecision('approved')"
             ${!isQualified ? 'disabled title="Score below 42 — not recommended"' : ''}>
-            ✓ Approve Trade
+            ✓ Log to Journal
           </button>
         </div>
 
@@ -221,12 +318,25 @@ const AgentUI = {
     const results = Pipeline.state.results;
     if (!results) return;
 
-    const alert = results.finalRecommendation?.tradeAlert;
-    const scores = results.finalRecommendation?.scores;
+    const alert    = results.finalRecommendation?.tradeAlert;
+    const scores   = results.finalRecommendation?.scores;
+    const options  = results.optionsAnalysis || {};
+    const execution = results.executionPlan || {};
 
     Pipeline.recordDecision(AgentUI.currentScanId, decision, alert ? {
       ...alert,
-      totalScore: scores?.total
+      totalScore:        scores?.total,
+      optionsStrategy:   options.recommendedStrategy,
+      optionsStrike:     options.recommendedStrike,
+      optionsExpiry:     options.recommendedExpiry,
+      optionsPremium:    options.estimatedPremium,
+      optionsBreakeven:  options.breakeven,
+      optionsMaxLoss:    options.maxLoss,
+      optionsContracts:  execution.contracts,
+      executionLimit:    execution.limitPrice,
+      executionStop:     execution.stopPrice,
+      executionTarget:   execution.targetPrice,
+      orderInstructions: execution.orderInstructions
     } : null);
 
     const gate = document.getElementById('approvalGate');
@@ -236,13 +346,16 @@ const AgentUI = {
           <div class="complete-icon" style="color:${decision === 'approved' ? 'var(--green)' : 'var(--text-muted)'}">
             ${decision === 'approved' ? '✓' : '✕'}
           </div>
-          <div class="complete-title">${decision === 'approved' ? 'Trade Approved' : 'Trade Declined'}</div>
+          <div class="complete-title">${decision === 'approved' ? 'Logged to Trade Journal' : 'Trade Declined'}</div>
           <div class="complete-msg">
             ${decision === 'approved'
-              ? 'Logged to your Trade Journal. Execute in Robinhood when ready.'
-              : 'Declined. No position taken. Decision logged.'}
+              ? `Trade logged to your Journal. Go to Robinhood and place the order manually using the execution instructions above. Options: ${options.recommendedStrategy?.replace('_',' ') || 'see journal'} $${options.recommendedStrike} exp ${options.recommendedExpiry}.`
+              : 'Declined. No position taken. Decision logged for review.'}
           </div>
-          <button class="btn btn--secondary" onclick="AgentUI.resetPipeline()">↻ Run New Scan</button>
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
+            <button class="btn btn--secondary" onclick="App.switchTab('journal')">→ View Journal</button>
+            <button class="btn btn--secondary" onclick="AgentUI.resetPipeline()">↻ Run New Scan</button>
+          </div>
         </div>
       `;
     }
