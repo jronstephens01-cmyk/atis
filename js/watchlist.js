@@ -2,13 +2,70 @@
 
 const Watchlist = {
 
+  PRESETS: {
+    top50: [
+      // Mega Cap Tech
+      'AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA',
+      // Semiconductors
+      'AMD','AVGO','QCOM','INTC','MU','AMAT','LRCX',
+      // Finance
+      'JPM','BAC','GS','MS','V','MA','BRK.B',
+      // Healthcare
+      'UNH','JNJ','ABBV','PFE','MRK','LLY',
+      // Consumer
+      'HD','WMT','COST','NKE','SBUX',
+      // Energy
+      'XOM','CVX','SLB',
+      // Industrial / Other
+      'CAT','BA','GE','RTX',
+      // ETFs
+      'SPY','QQQ','IWM','XLK','XLF','XLE','XLV','XLY','GLD','TLT'
+    ],
+    megacap: ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','BRK.B'],
+    etfs: ['SPY','QQQ','IWM','DIA','XLK','XLF','XLE','XLV','XLY','XLI','XLB','XLU','XLRE','GLD','TLT','SLV'],
+    finance: ['JPM','BAC','GS','MS','WFC','C','V','MA','AXP','BLK'],
+    healthcare: ['UNH','JNJ','ABBV','PFE','MRK','LLY','TMO','ABT','DHR','AMGN']
+  },
+
   init() {
     document.getElementById('addTickerBtn').addEventListener('click', Watchlist.addTicker);
     document.getElementById('tickerInput').addEventListener('keydown', e => {
       if (e.key === 'Enter') Watchlist.addTicker();
     });
     document.getElementById('refreshWatchlistBtn').addEventListener('click', Watchlist.refresh);
+    document.getElementById('bulkAddBtn').addEventListener('click', () => {
+      const panel = document.getElementById('bulkAddPanel');
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('clearWatchlistBtn').addEventListener('click', () => {
+      if (confirm('Clear entire watchlist?')) {
+        Storage.set('atis_watchlist', []);
+        Watchlist.render();
+        Utils.toast('Watchlist cleared', 'warn');
+      }
+    });
     Watchlist.render();
+  },
+
+  addPreset(key) {
+    const tickers = Watchlist.PRESETS[key] || [];
+    let added = 0;
+    tickers.forEach(t => { if (Storage.addToWatchlist(t)) added++; });
+    Watchlist.render();
+    Utils.toast(`Added ${added} tickers from preset`, 'success');
+    document.getElementById('bulkAddPanel').style.display = 'none';
+  },
+
+  addBulkFromInput() {
+    const raw = document.getElementById('bulkTickerInput')?.value || '';
+    const tickers = raw.split(/[\s,]+/).map(t => t.trim().toUpperCase()).filter(t => t.length >= 1 && t.length <= 6);
+    if (!tickers.length) { Utils.toast('No valid tickers found', 'error'); return; }
+    let added = 0;
+    tickers.forEach(t => { if (Storage.addToWatchlist(t)) added++; });
+    Watchlist.render();
+    Utils.toast(`Added ${added} of ${tickers.length} tickers`, 'success');
+    document.getElementById('bulkTickerInput').value = '';
+    document.getElementById('bulkAddPanel').style.display = 'none';
   },
 
   addTicker() {
