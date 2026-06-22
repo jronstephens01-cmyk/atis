@@ -364,7 +364,20 @@ const Portfolio = {
   },
 
   async syncRobinhood() {
-    Utils.toast('Robinhood sync available in Phase 2', 'info');
+    const btn = document.getElementById('syncRobinhoodBtn');
+    btn.disabled = true;
+    btn.textContent = '↻ Syncing...';
+
+    try {
+      const portfolio = await RobinhoodSync.syncPortfolio();
+      Portfolio.render();
+      Utils.toast(`Synced: ${Utils.formatCurrency(portfolio.currentValue)}`, 'success');
+    } catch (err) {
+      Utils.toast(`Sync failed: ${err.message}. Using manual entry.`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '↻ Sync Robinhood';
+    }
   },
 
   showManualEntry() {
