@@ -156,8 +156,8 @@ const Storage = {
 
   defaultPortfolio() {
     return {
-      currentValue: 500.00,
-      startingCapital: 500.00,
+      currentValue: 1500.00,
+      startingCapital: 1500.00,
       peakValue: 500.00,
       cashAvailable: 500.00,
       positions: [],
