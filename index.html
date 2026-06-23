@@ -437,7 +437,20 @@
         <h2 class="panel-title">Portfolio & Risk</h2>
         <div class="panel-actions">
           <button class="btn btn--secondary" id="manualEntryBtn">+ Manual Entry</button>
+          <button class="btn btn--secondary" id="updateAccountBtn">✎ Update Balance</button>
           <button class="btn btn--primary" id="syncRobinhoodBtn">↻ Sync Robinhood</button>
+        </div>
+      </div>
+
+      <!-- Account Update Panel -->
+      <div id="accountUpdatePanel" style="display:none;background:var(--bg-raised);border:1px solid var(--cyan-dim);border-radius:var(--radius-md);padding:16px;margin-bottom:16px">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--cyan);letter-spacing:0.1em;margin-bottom:12px">✎ UPDATE ACCOUNT BALANCE</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input type="number" id="newAccountValue" placeholder="1500.00" step="0.01"
+            style="background:var(--bg-surface);border:1px solid var(--border-bright);border-radius:var(--radius-sm);padding:8px 12px;font-family:var(--font-mono);font-size:14px;color:var(--text-primary);width:160px" />
+          <button class="btn btn--primary" onclick="Portfolio.updateAccountValue()">Save</button>
+          <button class="btn btn--secondary" onclick="document.getElementById('accountUpdatePanel').style.display='none'">Cancel</button>
+          <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">Enter your current Robinhood balance</span>
         </div>
       </div>
 
