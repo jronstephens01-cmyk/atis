@@ -257,10 +257,16 @@ const Pipeline = {
           isCall ? 'call' : 'put'
         );
         optionsResult.liveContract = liveContract;
-        optionsResult.liveDataAvailable = true;
+        optionsResult.liveDataAvailable = !!(liveContract?.premium);
+
+        // Override AI estimate with REAL mark price from Yahoo Finance
         if (liveContract?.premium) {
           optionsResult.estimatedPremium = liveContract.premium;
-          optionsResult.realPremium = liveContract.premium;
+          optionsResult.realPremium      = liveContract.premium;
+          optionsResult.realBid          = liveContract.bid;
+          optionsResult.realAsk          = liveContract.ask;
+          optionsResult.recommendedStrike = liveContract.strike || optionsResult.recommendedStrike;
+          optionsResult.recommendedExpiry = liveContract.expiry || optionsResult.recommendedExpiry;
         }
       } else {
         optionsResult.liveDataAvailable = false;
