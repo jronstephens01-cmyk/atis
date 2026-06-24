@@ -124,7 +124,7 @@ const AgentUI = {
   },
 
   // ============================================================
-  // HUMAN APPROVAL GATE
+  // HUMAN APPROVAL GATE — Simple card for anyone
   // ============================================================
   showApprovalGate(cioResult, riskResult, candidate, quote) {
     clearInterval(AgentUI._timer);
@@ -138,6 +138,190 @@ const AgentUI = {
     const execution = Pipeline.state.results?.executionPlan || {};
     const isQualified = scores.total >= 42;
     const scoreColor  = Scoring.scoreColor(scores.total);
+
+    // Decision label
+    const decision = scores.total >= 50
+      ? { emoji: '✅', label: 'BUY',   color: 'var(--green)',  bg: 'rgba(0,230,118,0.1)',  border: 'var(--green)' }
+      : scores.total >= 42
+      ? { emoji: '✅', label: 'BUY',   color: 'var(--green)',  bg: 'rgba(0,230,118,0.08)', border: 'var(--green)' }
+      : scores.total >= 35
+      ? { emoji: '👀', label: 'WATCH', color: 'var(--amber)',  bg: 'rgba(255,193,7,0.08)', border: 'var(--amber)' }
+      : { emoji: '⏭️', label: 'SKIP',  color: 'var(--red)',    bg: 'rgba(255,61,87,0.08)', border: 'var(--red)'   };
+
+    // One-sentence why (trimmed to 120 chars)
+    const rawThesis = alert.thesis || '';
+    const sentences = rawThesis.match(/[^.!?]+[.!?]+/g) || [];
+    const oneLineSentence = sentences[0]?.trim() || rawThesis.slice(0, 120);
+
+    // Stock numbers
+    const stockEntry  = alert.entryZone  || execution.limitPrice || '—';
+    const stockStop   = alert.stopLoss   || execution.stopPrice  || '—';
+    const stockTarget = alert.target     || execution.targetPrice || '—';
+
+    // Options numbers
+    const optStrike   = options.recommendedStrike  || '—';
+    const optExpiry   = options.recommendedExpiry  || '—';
+    const optPremium  = options.realPremium        || options.estimatedPremium || '—';
+    const optCost     = optPremium !== '—' ? `$${(optPremium * 100).toFixed(0)}` : '—';
+    const optPremStop = optPremium !== '—' ? `$${(optPremium * 0.5).toFixed(2)}` : '—';
+    const optLiveTag  = options.liveDataAvailable
+      ? `<span style="font-size:10px;color:var(--green);font-family:var(--font-mono)">📡 LIVE</span>`
+      : `<span style="font-size:10px;color:var(--amber);font-family:var(--font-mono)">est.</span>`;
+
+    gate.style.display = 'block';
+    gate.innerHTML = `
+      <div style="border:2px solid ${decision.border};border-radius:12px;overflow:hidden;margin-top:16px;background:var(--bg-raised)">
+
+        <!-- DECISION HEADER -->
+        <div style="background:${decision.bg};border-bottom:1px solid ${decision.border};padding:18px 20px;display:flex;align-items:center;gap:16px">
+          <div style="font-size:32px">${decision.emoji}</div>
+          <div>
+            <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:${decision.color};letter-spacing:0.05em">${decision.label}</div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${scores.total}/60 score</div>
+          </div>
+          <div style="flex:1;text-align:right">
+            <div style="font-family:var(--font-mono);font-size:18px;font-weight:600;color:var(--text-primary)">${alert.ticker || candidate.ticker}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${alert.timeframe || '2-4 weeks'}</div>
+          </div>
+        </div>
+
+        <!-- ONE SENTENCE WHY -->
+        <div style="padding:14px 20px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:13px;color:var(--text-secondary);line-height:1.5;font-style:italic">
+          "${oneLineSentence}"
+        </div>
+
+        <!-- TWO COLUMN TRADE CARD -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--border)">
+
+          <!-- STOCK PLAY -->
+          <div style="padding:18px 20px;border-right:1px solid var(--border)">
+            <div style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--text-muted);margin-bottom:14px">📈 STOCK PLAY</div>
+
+            <div style="margin-bottom:12px">
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:3px">BUY AT</div>
+              <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--cyan)">${stockEntry}</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+              <div style="padding:10px;background:rgba(255,61,87,0.06);border:1px solid var(--red-dim);border-radius:6px">
+                <div style="font-size:9px;color:var(--red);font-family:var(--font-mono);margin-bottom:3px">🛑 STOP LOSS</div>
+                <div style="font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--red)">${stockStop}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Sell if price drops here</div>
+              </div>
+              <div style="padding:10px;background:rgba(0,230,118,0.06);border:1px solid var(--green-dim);border-radius:6px">
+                <div style="font-size:9px;color:var(--green);font-family:var(--font-mono);margin-bottom:3px">🎯 TAKE PROFIT</div>
+                <div style="font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--green)">${stockTarget}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Sell shares here</div>
+              </div>
+            </div>
+
+            <div style="padding:8px;background:var(--bg-surface);border-radius:4px;font-size:11px;color:var(--text-muted)">
+              R/R: ${alert.riskReward || '—'} &nbsp;|&nbsp; Position: ${Utils.formatCurrency(riskResult.recommendedPositionDollar)}
+            </div>
+          </div>
+
+          <!-- OPTIONS PLAY -->
+          <div style="padding:18px 20px">
+            <div style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.12em;color:var(--text-muted);margin-bottom:14px">🎯 OPTIONS PLAY ${optLiveTag}</div>
+
+            <div style="margin-bottom:12px">
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:3px">BUY CONTRACT</div>
+              <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--cyan)">$${optStrike} Call — ${optExpiry}</div>
+              <div style="font-family:var(--font-mono);font-size:13px;color:var(--text-secondary);margin-top:2px">Cost: ${optCost} per contract</div>
+              ${optPremium !== '—' && options.realBid ? `<div style="font-size:10px;color:var(--text-muted);margin-top:1px">Bid $${options.realBid} / Ask $${options.realAsk}</div>` : ''}
+              ${optPremium !== '—' ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">⚡ Got in cheaper? Stop = what you paid ÷ 2</div>` : ''}
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+              <div style="padding:10px;background:rgba(255,61,87,0.06);border:1px solid var(--red-dim);border-radius:6px">
+                <div style="font-size:9px;color:var(--red);font-family:var(--font-mono);margin-bottom:3px">🛑 EXIT IF</div>
+                <div style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--red)">Stock → ${stockStop}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">OR premium → ${optPremStop}</div>
+                <div style="font-size:9px;color:var(--text-muted);margin-top:1px">Whichever comes first</div>
+              </div>
+              <div style="padding:10px;background:rgba(0,230,118,0.06);border:1px solid var(--green-dim);border-radius:6px">
+                <div style="font-size:9px;color:var(--green);font-family:var(--font-mono);margin-bottom:3px">🎯 TAKE PROFIT</div>
+                <div style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--green)">Stock → ${stockTarget}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Sell contract then</div>
+              </div>
+            </div>
+
+            <div style="padding:8px;background:var(--bg-surface);border-radius:4px;font-size:11px;color:var(--text-muted)">
+              ${options.probabilityOfProfit ? `Win odds: ${Math.round(options.probabilityOfProfit * 100)}%` : ''} &nbsp;|&nbsp; Max loss: ${optCost}
+            </div>
+          </div>
+        </div>
+
+        <!-- SHOW DETAILS TOGGLE -->
+        <div style="border-bottom:1px solid var(--border)">
+          <button onclick="AgentUI.toggleDetails()" style="width:100%;padding:12px 20px;background:none;border:none;font-family:var(--font-mono);font-size:11px;color:var(--cyan);cursor:pointer;text-align:left;letter-spacing:0.06em">
+            ▼ Show Details (why the AI likes this, risks, score breakdown)
+          </button>
+          <div id="tradeDetails" style="display:none;padding:0 20px 16px">
+
+            <!-- Score bars -->
+            <div style="margin-bottom:14px">
+              <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:8px">AI SCORE — ${scores.total}/60</div>
+              ${AgentUI.renderScoreBar('Technical',   scores.technical)}
+              ${AgentUI.renderScoreBar('Fundamental', scores.fundamental)}
+              ${AgentUI.renderScoreBar('Catalyst',    scores.catalyst)}
+              ${AgentUI.renderScoreBar('Risk/Reward', scores.risk)}
+              ${AgentUI.renderScoreBar('Market',      scores.market)}
+              ${AgentUI.renderScoreBar('Macro',       scores.macro)}
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div style="background:rgba(0,230,118,0.04);border:1px solid var(--green-dim);border-radius:6px;padding:12px">
+                <div style="font-family:var(--font-mono);font-size:10px;color:var(--green);margin-bottom:6px">✅ WHY THE AI LIKES THIS</div>
+                <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">${alert.thesis || '—'}</div>
+              </div>
+              <div style="background:rgba(255,61,87,0.04);border:1px solid var(--red-dim);border-radius:6px;padding:12px">
+                <div style="font-family:var(--font-mono);font-size:10px;color:var(--red);margin-bottom:6px">⚠️ WHAT COULD GO WRONG</div>
+                <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">${alert.risks || '—'}</div>
+              </div>
+            </div>
+
+            <div style="background:rgba(255,193,7,0.05);border:1px solid var(--amber-dim);border-radius:6px;padding:12px;margin-top:10px">
+              <div style="font-family:var(--font-mono);font-size:10px;color:var(--amber);margin-bottom:6px">🚪 WALK AWAY IF...</div>
+              <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">${alert.invalidation || '—'}</div>
+            </div>
+
+            <div style="background:var(--bg-surface);border-radius:6px;padding:12px;margin-top:10px;font-size:11px;color:var(--text-muted)">
+              <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-bottom:4px">BEST TIME TO ENTER</div>
+              ${execution.entryTiming || 'Avoid first 30 minutes of market open. Wait for price to settle.'}
+            </div>
+          </div>
+        </div>
+
+        <!-- ACTION BUTTONS -->
+        <div style="padding:16px 20px;display:flex;gap:12px;justify-content:flex-end;align-items:center">
+          ${!isQualified ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--amber);flex:1">Score ${scores.total}/60 — below 42 minimum. Consider watching instead.</span>` : ''}
+          <button class="btn btn--danger" onclick="AgentUI.recordDecision('declined')" style="padding:10px 20px;font-size:12px">
+            ⏭️ Skip
+          </button>
+          <button class="btn btn--secondary" onclick="AgentUI.recordDecision('watch')" style="padding:10px 20px;font-size:12px">
+            👀 Watch
+          </button>
+          <button class="btn btn--primary" onclick="AgentUI.recordDecision('approved')"
+            style="padding:10px 24px;font-size:12px${!isQualified ? ';opacity:0.6' : ''}">
+            ✅ Log Trade
+          </button>
+        </div>
+
+      </div>
+    `;
+  },
+
+  toggleDetails() {
+    const el = document.getElementById('tradeDetails');
+    const btn = el?.previousElementSibling;
+    if (!el) return;
+    const isHidden = el.style.display === 'none';
+    el.style.display = isHidden ? 'block' : 'none';
+    if (btn) btn.innerHTML = isHidden
+      ? '▲ Hide Details'
+      : '▼ Show Details (why the AI likes this, risks, score breakdown)';
+  },
 
     // Score emoji
     const scoreEmoji = scores.total >= 50 ? '🟢' : scores.total >= 42 ? '🟡' : '🔴';
@@ -489,37 +673,41 @@ const AgentUI = {
     const options  = results.optionsAnalysis || {};
     const execution = results.executionPlan || {};
 
-    Pipeline.recordDecision(AgentUI.currentScanId, decision, alert ? {
-      ...alert,
-      totalScore:        scores?.total,
-      optionsStrategy:   options.recommendedStrategy,
-      optionsStrike:     options.recommendedStrike,
-      optionsExpiry:     options.recommendedExpiry,
-      optionsPremium:    options.estimatedPremium,
-      optionsBreakeven:  options.breakeven,
-      optionsMaxLoss:    options.maxLoss,
-      optionsContracts:  execution.contracts,
-      executionLimit:    execution.limitPrice,
-      executionStop:     execution.stopPrice,
-      executionTarget:   execution.targetPrice,
-      orderInstructions: execution.orderInstructions
-    } : null);
+    if (decision !== 'watch') {
+      Pipeline.recordDecision(AgentUI.currentScanId, decision, alert ? {
+        ...alert,
+        totalScore:        scores?.total,
+        optionsStrategy:   options.recommendedStrategy,
+        optionsStrike:     options.recommendedStrike,
+        optionsExpiry:     options.recommendedExpiry,
+        optionsPremium:    options.estimatedPremium,
+        optionsBreakeven:  options.breakeven,
+        optionsMaxLoss:    options.maxLoss,
+        optionsContracts:  execution.contracts,
+        executionLimit:    execution.limitPrice,
+        executionStop:     execution.stopPrice,
+        executionTarget:   execution.targetPrice,
+        orderInstructions: execution.orderInstructions
+      } : null);
+    }
+
+    const icons   = { approved: '✅', watch: '👀', declined: '⏭️' };
+    const titles  = { approved: 'Logged to Journal', watch: 'Added to Watchlist', declined: 'Skipped' };
+    const msgs    = {
+      approved: `Go to Robinhood and place the order. ${options.recommendedStrategy?.replace('_',' ') || ''} $${options.recommendedStrike} exp ${options.recommendedExpiry}. Stock stop: ${alert?.stopLoss} | Premium stop: ${options.estimatedPremium ? '$' + (options.estimatedPremium * 0.5).toFixed(2) : '—'}`,
+      watch:    `${alert?.ticker} added to your monitor list. Run another scan or check back when price pulls back to the entry zone.`,
+      declined: 'No position taken. The AI will find a better setup next scan.'
+    };
 
     const gate = document.getElementById('approvalGate');
     if (gate) {
       gate.innerHTML = `
         <div class="pipeline-complete-block">
-          <div class="complete-icon" style="color:${decision === 'approved' ? 'var(--green)' : 'var(--text-muted)'}">
-            ${decision === 'approved' ? '✓' : '✕'}
-          </div>
-          <div class="complete-title">${decision === 'approved' ? 'Logged to Trade Journal' : 'Trade Declined'}</div>
-          <div class="complete-msg">
-            ${decision === 'approved'
-              ? `Trade logged to your Journal. Go to Robinhood and place the order manually using the execution instructions above. Options: ${options.recommendedStrategy?.replace('_',' ') || 'see journal'} $${options.recommendedStrike} exp ${options.recommendedExpiry}.`
-              : 'Declined. No position taken. Decision logged for review.'}
-          </div>
+          <div class="complete-icon" style="font-size:36px">${icons[decision]}</div>
+          <div class="complete-title">${titles[decision]}</div>
+          <div class="complete-msg">${msgs[decision]}</div>
           <div style="display:flex;gap:10px;justify-content:center;margin-top:4px">
-            <button class="btn btn--secondary" onclick="App.switchTab('journal')">→ View Journal</button>
+            ${decision === 'approved' ? `<button class="btn btn--secondary" onclick="App.switchTab('journal')">→ View Journal</button>` : ''}
             <button class="btn btn--secondary" onclick="AgentUI.resetPipeline()">↻ Run New Scan</button>
           </div>
         </div>
