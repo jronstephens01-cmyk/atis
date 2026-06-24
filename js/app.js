@@ -72,7 +72,7 @@ const App = {
 
   loadInitialTab() {
     const hash = window.location.hash.replace('#', '');
-    const validTabs = ['market','watchlist','macro','scanner','portfolio','journal','reports','backtest','agents'];
+    const validTabs = ['market','watchlist','macro','scanner','portfolio','journal','reports','backtest','phase5','agents'];
     App.switchTab(validTabs.includes(hash) ? hash : 'market');
   },
 
@@ -99,6 +99,13 @@ const App = {
   },
 
   initModules() {
+    // Reset pipeline state on every page load — prevents stuck "already running" bug
+    if (typeof Pipeline !== 'undefined') {
+      Pipeline.state.running     = false;
+      Pipeline.state.error       = null;
+      Pipeline.state.currentAgent = null;
+    }
+
     // Initialize all tab modules
     Dashboard.init();
     Watchlist.init();
