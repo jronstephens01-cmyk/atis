@@ -302,70 +302,109 @@ const AgentUI = {
 
   // Build 3 tier option cards from live chain data
   renderOptionTiers(options, stockStop, stockTarget, maxBudget = 99999) {
-    const allCalls = Pipeline.state.results?.optionsRawCalls || [];
+    const allCalls   = Pipeline.state.results?.optionsRawCalls || [];
+    const underlying = options.underlyingPrice || 0;
 
     if (!allCalls.length) {
       const premium = options.realPremium || options.estimatedPremium;
-      const cost    = premium ? (premium * 100) : null;
       if (!premium) return `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:12px">No live options data available</div>`;
-      return AgentUI.renderSingleTier('🟡', 'STANDARD', options.recommendedStrike, options.recommendedExpiry, cost, premium, options.realBid, options.realAsk, options.probabilityOfProfit, maxBudget);
+      const cost = premium * 100;
+      return AgentUI.renderSingleTier('🟡', 'STANDARD', options.recommendedStrike, options.recommendedExpiry, cost, premium, options.realBid, options.realAsk, null, maxBudget);
     }
 
-    const underlying = options.underlyingPrice || 0;
-    const sorted     = [...allCalls].filter(c => (c.mark || c.ask || 0) > 0).sort((a, b) => a.strike - b.strike);
+    // Sort all calls by cost ascending so cheapest shows first
+    const sorted = [...allCalls]
+      .filter(c => (c.mark || 0) > 0)
+      .sort((a, b) => (a.mark * 100) - (b.mark * 100));
+
     if (!sorted.length) return `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:12px">No liquid contracts found</div>`;
 
-    // Find ATM index
-    const atmIdx = sorted.reduce((best, c, i) =>
-      Math.abs(c.strike - underlying) < Math.abs(sorted[best].strike - underlying) ? i : best, 0);
+    // Find affordable contracts within budget
+    const affordable = sorted.filter(c => (c.mark * 100) <= maxBudget);
 
-    // Pick 3 distinct tiers
-    const conservative = sorted[Math.max(0, atmIdx - 1)];
-    const standard     = sorted[atmIdx];
-    const aggressive   = sorted[Math.min(sorted.length - 1, atmIdx + 2)];
+    // If none are affordable, show 3 cheapest with OVER BUDGET tag
+    const pool = affordable.length >= 3 ? affordable : sorted.slice(0, 6);
 
-    const seen = new Set();
-    const tiers = [
-      { emoji: '🟢', label: 'CONSERVATIVE', contract: conservative },
-      { emoji: '🟡', label: 'STANDARD',     contract: standard     },
-      { emoji: '🔴', label: 'AGGRESSIVE',   contract: aggressive   },
-    ].filter(t => {
-      if (!t.contract || seen.has(t.contract.strike)) return false;
-      seen.add(t.contract.strike);
-      return true;
-    });
+    // Pick 3 representative tiers from the pool
+    // Conservative = highest confidence (closest to ATM but affordable)
+    // Standard = middle
+    // Aggressive = cheapest / furthest OTM
+    let tiers = [];
+    if (pool.length >= 3) {
+      const atmIdx = pool.reduce((best, c, i) =>
+        Math.abs(c.strike - underlying) < Math.abs(pool[best].strike - underlying) ? i : best, 0);
 
-    return tiers.map(t => {
-      const mark = t.contract.mark || ((t.contract.bid + t.contract.ask) / 2) || 0;
-      const cost = mark * 100;
-      return AgentUI.renderSingleTier(t.emoji, t.label, t.contract.strike, t.contract.expiry, cost, mark, t.contract.bid, t.contract.ask, t.contract.probabilityOfProfit, maxBudget);
-    }).join('');
+      // Best affordable near ATM = conservative
+      const conservative = pool[atmIdx];
+      // Cheapest = aggressive
+      const aggressive   = pool[0];
+      // Middle ground = standard
+      const midIdx       = Math.floor((atmIdx + 0) / 2);
+      const standard     = pool[midIdx] || pool[Math.floor(pool.length / 2)];
+
+      const seen = new Set();
+      [
+        { emoji: '🟢', label: 'CONSERVATIVE', contract: conservative },
+        { emoji: '🟡', label: 'STANDARD',     contract: standard     },
+        { emoji: '🔴', label: 'AGGRESSIVE',   contract: aggressive   },
+      ].forEach(t => {
+        if (t.contract && !seen.has(t.contract.strike)) {
+          seen.add(t.contract.strike);
+          tiers.push(t);
+        }
+      });
+    } else {
+      // Just show what we have
+      pool.slice(0, 3).forEach((c, i) => {
+        const labels  = ['🟢 CONSERVATIVE', '🟡 STANDARD', '🔴 AGGRESSIVE'];
+        const emojis  = ['🟢', '🟡', '🔴'];
+        const lbls    = ['CONSERVATIVE', 'STANDARD', 'AGGRESSIVE'];
+        tiers.push({ emoji: emojis[i], label: lbls[i], contract: c });
+      });
+    }
+
+    const noneAffordable = affordable.length === 0 && maxBudget < 99999;
+
+    return `
+      ${noneAffordable ? `
+        <div style="padding:8px;background:rgba(255,193,7,0.08);border:1px solid var(--amber-dim);border-radius:6px;font-family:var(--font-mono);font-size:10px;color:var(--amber);margin-bottom:8px;text-align:center">
+          ⚠️ No contracts under $${maxBudget.toLocaleString()} — showing cheapest available
+        </div>` : ''}
+      ${tiers.map(t => {
+        const mark = t.contract.mark || ((t.contract.bid + t.contract.ask) / 2) || 0;
+        const cost = mark * 100;
+        return AgentUI.renderSingleTier(t.emoji, t.label, t.contract.strike, t.contract.expiry, cost, mark, t.contract.bid, t.contract.ask, t.contract.probabilityOfProfit, maxBudget);
+      }).join('')}
+      <div style="font-size:10px;color:var(--text-muted);text-align:center;margin-top:4px">
+        ${affordable.length} contracts under $${maxBudget === 99999 ? '∞' : maxBudget.toLocaleString()} available
+      </div>
+    `;
   },
 
   renderSingleTier(emoji, label, strike, expiry, cost, premium, bid, ask, winOdds, maxBudget) {
     const affordable = cost <= maxBudget;
-    const opacity    = affordable ? '1' : '0.35';
     const border     = label === 'CONSERVATIVE' ? 'var(--green-dim)' : label === 'STANDARD' ? 'var(--cyan-dim)' : 'var(--amber-dim)';
-    const color      = label === 'CONSERVATIVE' ? 'var(--green)' : label === 'STANDARD' ? 'var(--cyan)' : 'var(--amber)';
+    const color      = label === 'CONSERVATIVE' ? 'var(--green)'     : label === 'STANDARD' ? 'var(--cyan)'     : 'var(--amber)';
+    const costColor  = affordable ? color : 'var(--red)';
+    const bg         = affordable ? '' : 'opacity:0.5;';
 
     return `
-      <div style="opacity:${opacity};margin-bottom:8px;padding:10px;background:var(--bg-surface);border:1px solid ${border};border-radius:6px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <span style="font-size:12px">${emoji}</span>
-          <span style="font-family:var(--font-mono);font-size:9px;font-weight:600;color:${color};letter-spacing:0.08em">${label}</span>
-          ${!affordable ? `<span style="font-family:var(--font-mono);font-size:9px;color:var(--red)">OVER BUDGET</span>` : ''}
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline">
-          <div>
-            <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--text-primary)">$${strike} Call — ${expiry}</div>
-            ${bid && ask ? `<div style="font-size:10px;color:var(--text-muted)">Bid $${bid} / Ask $${ask}</div>` : ''}
+      <div style="${bg}margin-bottom:8px;padding:10px;background:var(--bg-surface);border:1px solid ${affordable ? border : 'var(--red-dim)'};border-radius:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span>${emoji}</span>
+            <span style="font-family:var(--font-mono);font-size:9px;font-weight:600;color:${color};letter-spacing:0.08em">${label}</span>
           </div>
-          <div style="text-align:right">
-            <div style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:${color}">$${cost ? cost.toFixed(0) : '—'}</div>
-            <div style="font-size:9px;color:var(--text-muted)">per contract</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:${costColor}">$${cost ? cost.toFixed(0) : '—'}</span>
+            ${!affordable
+              ? `<span style="font-family:var(--font-mono);font-size:9px;color:var(--red);background:rgba(255,61,87,0.1);padding:2px 5px;border-radius:3px">OVER BUDGET</span>`
+              : `<span style="font-family:var(--font-mono);font-size:9px;color:var(--green);background:rgba(0,230,118,0.1);padding:2px 5px;border-radius:3px">✓ AFFORDABLE</span>`
+            }
           </div>
         </div>
-        ${winOdds ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Win odds: ${Math.round(winOdds * 100)}%</div>` : ''}
+        <div style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text-primary)">$${strike} Call — ${expiry}</div>
+        ${bid && ask ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Bid $${bid} / Ask $${ask} &nbsp;·&nbsp; ${winOdds ? `Win odds: ${Math.round(winOdds * 100)}%` : ''}</div>` : ''}
       </div>
     `;
   },
