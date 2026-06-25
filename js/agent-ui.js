@@ -175,6 +175,13 @@ const AgentUI = {
           "${oneSentence}"
         </div>
 
+        <!-- BEGINNER TIP -->
+        ${alert.beginnerTip ? `
+        <div style="padding:10px 20px;background:rgba(0,212,255,0.05);border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:8px">
+          <span style="font-size:16px;flex-shrink:0">💡</span>
+          <div style="font-size:12px;color:var(--cyan);line-height:1.5">${alert.beginnerTip}</div>
+        </div>` : ''}
+
         <!-- TWO COLUMN TRADE CARD -->
         <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
 
