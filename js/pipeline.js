@@ -280,6 +280,8 @@ const Pipeline = {
       results.finalRecommendation = cioResult;
       results.executionPlan       = executionResult;
       results.optionsAnalysis     = optionsResult;
+      // Store raw calls for 3-tier display
+      results.optionsRawCalls     = liveOptionsData?.allCalls || [];
       results.status              = 'awaiting_approval';
 
       Pipeline.saveResults(results);
