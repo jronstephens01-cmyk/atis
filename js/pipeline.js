@@ -201,22 +201,20 @@ const Pipeline = {
       results.agents.agent14 = cioResult;
       AgentUI.setAgentStatus('agent14', 'complete', `${cioResult.scoreLabel} — Score: ${cioResult.scores.total}/60`);
 
-      // Attach live options data
-      if (liveOptionsData) {
-        const isCall = !optionsResult.recommendedStrategy?.includes('put');
-        const liveContract = Phase5.formatContract(
-          isCall ? liveOptionsData.bestCall : liveOptionsData.bestPut,
-          isCall ? 'call' : 'put'
-        );
+      // Attach live options data — use Worker's recommended contract directly
+      if (liveOptionsData?.bestCall) {
+        const liveContract = Phase5.formatContract(liveOptionsData.bestCall, 'call');
+        console.log('Live contract:', liveContract);
         optionsResult.liveContract      = liveContract;
-        optionsResult.liveDataAvailable = !!(liveContract?.premium);
-        if (liveContract?.premium) {
+        optionsResult.liveDataAvailable = !!(liveContract?.premium && liveContract.premium > 0.50);
+        if (liveContract?.premium && liveContract.premium > 0.50) {
           optionsResult.estimatedPremium  = liveContract.premium;
           optionsResult.realPremium       = liveContract.premium;
           optionsResult.realBid           = liveContract.bid;
           optionsResult.realAsk           = liveContract.ask;
-          optionsResult.recommendedStrike = liveContract.strike || optionsResult.recommendedStrike;
-          optionsResult.recommendedExpiry = liveContract.expiry || optionsResult.recommendedExpiry;
+          // Use live strike/expiry if AI's recommendation has no real price
+          optionsResult.recommendedStrike = liveContract.strike;
+          optionsResult.recommendedExpiry = liveContract.expiry;
         }
       } else {
         optionsResult.liveDataAvailable = false;
