@@ -49,10 +49,47 @@ const Pipeline = {
       // ── WAVE 2: Scan first, then sector filter with candidates ───
       const portfolio  = Storage.getPortfolio();
       const riskState  = Storage.getRiskState();
+
+      // Price-tier rotation — cycle through budget levels each scan
+      // so users see affordable options regularly
+      const scanLog    = Storage.get('atis_scanLog') || [];
+      const scanCount  = scanLog.length;
+      const tierCycle  = scanCount % 3; // 0=any, 1=prefer cheap, 2=prefer mid
+
+      const quotes = marketData.quotes;
+
+      // Categorize watchlist by price
+      const cheapTickers  = watchlist.filter(t => {
+        const p = quotes[t]?.regularMarketPrice || 0;
+        return p > 0 && p < 50;
+      });
+      const midTickers    = watchlist.filter(t => {
+        const p = quotes[t]?.regularMarketPrice || 0;
+        return p >= 50 && p < 200;
+      });
+      const expTickers    = watchlist.filter(t => {
+        const p = quotes[t]?.regularMarketPrice || 0;
+        return p >= 200;
+      });
+
+      // Build tier hint for Agent 1
+      const tierHint = tierCycle === 1 && cheapTickers.length
+        ? `PRIORITY THIS SCAN: Focus on these lower-priced tickers first (options under $200/contract): ${cheapTickers.slice(0,10).join(', ')}`
+        : tierCycle === 2 && midTickers.length
+        ? `PRIORITY THIS SCAN: Focus on these mid-priced tickers (options $100-500/contract): ${midTickers.slice(0,10).join(', ')}`
+        : 'Scan all tickers and pick the best setups across all price ranges';
+
       AgentUI.setAgentStatus('agent1', 'running', 'Scanning watchlist...');
       const scanResult = await Pipeline.callAgent('agent1', AGENT_PROMPTS.juniorAnalyst, {
-        task: 'scan_candidates', watchlist, quotes: marketData.quotes,
-        macroRegime: macroResult.regime, scoreThreshold: macroResult.scoreThreshold || 42
+        task: 'scan_candidates',
+        watchlist,
+        quotes: marketData.quotes,
+        macroRegime: macroResult.regime,
+        scoreThreshold: macroResult.scoreThreshold || 42,
+        tierHint,
+        cheapTickers:  cheapTickers.slice(0, 15),
+        midTickers:    midTickers.slice(0, 15),
+        priceTierFocus: tierCycle === 1 ? 'cheap' : tierCycle === 2 ? 'mid' : 'all'
       }, prefs.workerUrl);
 
       results.agents.agent1 = scanResult;
@@ -86,11 +123,10 @@ const Pipeline = {
       if (!filteredCandidates.length) { Pipeline.finish(results, 'filtered_out'); return; }
 
       // Rotate to avoid always picking same ticker
-      const scanLog = Storage.get('atis_scanLog') || [];
-      const lastTicker = scanLog[0]?.ticker;
-      const rotated = filteredCandidates.filter(c => c.ticker !== lastTicker);
+      const lastTicker   = scanLog[0]?.ticker;
+      const rotated      = filteredCandidates.filter(c => c.ticker !== lastTicker);
       const topCandidate = rotated[0] || filteredCandidates[0];
-      scanLog.unshift({ ticker: topCandidate.ticker, date: new Date().toISOString() });
+      scanLog.unshift({ ticker: topCandidate.ticker, date: new Date().toISOString(), tier: tierCycle });
       Storage.set('atis_scanLog', scanLog.slice(0, 20));
 
       // ── WAVE 3: Research + Live Options in parallel ──────────────
