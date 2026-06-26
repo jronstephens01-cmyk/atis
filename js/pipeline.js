@@ -42,17 +42,16 @@ const Pipeline = {
       timestamp:           Date.now(),
       watchlist,
       agents:              {},
+      candidateQueue:      [],   // ← NEW: array of fully-processed candidates
       finalRecommendation: null,
       status:              'running'
     };
 
     Pipeline.state.results = results;
 
-    // Only reset UI if NOT coming from market scan (which already set up the UI)
     if (!marketCandidates) {
       AgentUI.startPipeline(results.scanId);
     } else {
-      // Update scan ID in existing UI
       AgentUI.currentScanId = results.scanId;
       const scanIdEl = document.querySelector('.pipeline-scan-id');
       if (scanIdEl) scanIdEl.textContent = results.scanId;
@@ -62,7 +61,6 @@ const Pipeline = {
       // ── WAVE 0: Data fetch ──────────────────────────────────────
       let marketData;
       if (marketCandidates) {
-        // Market scan already fetched data — build marketData from scan results
         AgentUI.setAgentStatus('data', 'running', 'Loading market data for found tickers...');
         const quotes = {};
         marketCandidates.forEach(c => {
@@ -74,7 +72,6 @@ const Pipeline = {
             regularMarketVolume:        c.volume || 0,
           };
         });
-        // Also fetch indices
         const idxData = await Pipeline.fetchAllData(['SPY','QQQ','IWM','^VIX'], prefs.workerUrl)
           .catch(() => ({ quotes: {}, macro: {}, sectors: {}, indices: {} }));
         marketData = {
@@ -92,7 +89,7 @@ const Pipeline = {
           `Data loaded for ${Object.keys(marketData.quotes || {}).length} tickers`);
       }
 
-      // ── WAVE 1: Macro (must go first) ───────────────────────────
+      // ── WAVE 1: Macro ───────────────────────────────────────────
       AgentUI.setAgentStatus('agent15', 'running', 'Classifying market regime...');
       const macroResult = await Pipeline.callAgent('agent15', AGENT_PROMPTS.macroStrategist, {
         task: 'classify_regime', macroData: marketData.macro, indexData: marketData.indices
@@ -100,37 +97,22 @@ const Pipeline = {
       results.agents.agent15 = macroResult;
       AgentUI.setAgentStatus('agent15', 'complete', `Regime: ${macroResult.regime} (${macroResult.totalScore}/50)`);
 
-      // ── WAVE 2: Scan first, then sector filter with candidates ───
+      // ── WAVE 2: Junior Analyst + Sector filter ──────────────────
       const portfolio  = Storage.getPortfolio();
       const riskState  = Storage.getRiskState();
 
-      // Price-tier rotation — cycle through budget levels each scan
-      // so users see affordable options regularly
-      const scanLog    = Storage.get('atis_scanLog') || [];
-      const scanCount  = scanLog.length;
-      const tierCycle  = scanCount % 3; // 0=any, 1=prefer cheap, 2=prefer mid
+      const scanLog   = Storage.get('atis_scanLog') || [];
+      const scanCount = scanLog.length;
+      const tierCycle = scanCount % 3;
+      const quotes    = marketData.quotes;
 
-      const quotes = marketData.quotes;
+      const cheapTickers = watchlist.filter(t => { const p = quotes[t]?.regularMarketPrice || 0; return p > 0 && p < 50; });
+      const midTickers   = watchlist.filter(t => { const p = quotes[t]?.regularMarketPrice || 0; return p >= 50 && p < 200; });
 
-      // Categorize watchlist by price
-      const cheapTickers  = watchlist.filter(t => {
-        const p = quotes[t]?.regularMarketPrice || 0;
-        return p > 0 && p < 50;
-      });
-      const midTickers    = watchlist.filter(t => {
-        const p = quotes[t]?.regularMarketPrice || 0;
-        return p >= 50 && p < 200;
-      });
-      const expTickers    = watchlist.filter(t => {
-        const p = quotes[t]?.regularMarketPrice || 0;
-        return p >= 200;
-      });
-
-      // Build tier hint for Agent 1
       const tierHint = tierCycle === 1 && cheapTickers.length
-        ? `PRIORITY THIS SCAN: Focus on these lower-priced tickers first (options under $200/contract): ${cheapTickers.slice(0,10).join(', ')}`
+        ? `PRIORITY THIS SCAN: Focus on these lower-priced tickers first: ${cheapTickers.slice(0,10).join(', ')}`
         : tierCycle === 2 && midTickers.length
-        ? `PRIORITY THIS SCAN: Focus on these mid-priced tickers (options $100-500/contract): ${midTickers.slice(0,10).join(', ')}`
+        ? `PRIORITY THIS SCAN: Focus on these mid-priced tickers: ${midTickers.slice(0,10).join(', ')}`
         : 'Scan all tickers and pick the best setups across all price ranges';
 
       AgentUI.setAgentStatus('agent1', 'running', 'Scanning watchlist...');
@@ -144,13 +126,12 @@ const Pipeline = {
         cheapTickers:   cheapTickers.slice(0, 15),
         midTickers:     midTickers.slice(0, 15),
         priceTierFocus: tierCycle === 1 ? 'cheap' : tierCycle === 2 ? 'mid' : 'all',
-        // Pre-screened market candidates if from full market scan
         preScreenedCandidates: marketCandidates ? marketCandidates.map(c => ({
-          ticker:            c.ticker,
-          price:             c.price,
-          changePct:         c.changePct,
+          ticker:             c.ticker,
+          price:              c.price,
+          changePct:          c.changePct,
           cheapestOptionCost: c.cheapestCost,
-          affordabilityTier: c.affordability
+          affordabilityTier:  c.affordability
         })) : null
       }, prefs.workerUrl);
 
@@ -164,8 +145,6 @@ const Pipeline = {
       }
       AgentUI.setAgentStatus('agent1', 'complete', `${scanResult.candidates.length} candidates identified`);
 
-      // Filter out stocks too expensive for this account size
-      // $2000 account → max stock price $200 (options ~$100-500/contract)
       const maxStockPrice = portfolio.currentValue < 2000 ? 200
         : portfolio.currentValue < 5000 ? 400
         : 99999;
@@ -175,17 +154,10 @@ const Pipeline = {
         return price === 0 || price <= maxStockPrice;
       });
 
-      // Use affordable if we have at least 2, otherwise fall back to all
       const candidatesForSector = affordableCandidates.length >= 2
         ? affordableCandidates
         : scanResult.candidates;
 
-      if (affordableCandidates.length < scanResult.candidates.length) {
-        AgentUI.setAgentStatus('agent1', 'complete',
-          `${candidatesForSector.length} affordable candidates (filtered ${scanResult.candidates.length - affordableCandidates.length} expensive)`);
-      }
-
-      // Agent 3 runs after Agent 1 so it has the real candidate list
       AgentUI.setAgentStatus('agent3', 'running', 'Filtering by sector strength...');
       const sectorPreResult = await Pipeline.callAgent('agent3', AGENT_PROMPTS.sectorHead, {
         task: 'filter_by_sector',
@@ -196,7 +168,6 @@ const Pipeline = {
 
       results.agents.agent3 = sectorPreResult;
 
-      // If sector filter returns empty, fall back to all candidates
       const filteredCandidates = (sectorPreResult.filteredCandidates?.length
         ? sectorPreResult.filteredCandidates
         : scanResult.candidates).filter(Boolean);
@@ -205,212 +176,215 @@ const Pipeline = {
 
       if (!filteredCandidates.length) { Pipeline.finish(results, 'filtered_out'); return; }
 
-      // Build ranked candidate list — rotate to avoid repeats, try up to 3
-      const lastTicker     = scanLog[0]?.ticker;
-      const rotated        = filteredCandidates.filter(c => c.ticker !== lastTicker);
+      // Rotate to avoid repeating last ticker at top
+      const lastTicker       = scanLog[0]?.ticker;
+      const rotated          = filteredCandidates.filter(c => c.ticker !== lastTicker);
       const rankedCandidates = rotated.length ? rotated : filteredCandidates;
 
-      let topCandidate    = null;
-      let researchResult  = null;
-      let liveOptionsData = null;
-      let cioScoreTotal   = 0;
+      // ── WAVE 3: Research ALL top-N candidates IN PARALLEL ───────
+      // Lowered threshold from 36 to 32 — more candidates surface
+      const TOP_N = Math.min(rankedCandidates.length, 5);
+      const topCandidates = rankedCandidates.slice(0, TOP_N);
 
-      // Try up to 3 candidates — stop when we find one scoring 42+
-      for (let i = 0; i < Math.min(rankedCandidates.length, 3); i++) {
-        const candidate = rankedCandidates[i];
-        AgentUI.setAgentStatus('agent2', 'running', `Analyzing ${candidate.ticker} (${i + 1}/${Math.min(rankedCandidates.length, 3)})...`);
+      AgentUI.setAgentStatus('agent2', 'running', `Analyzing ${topCandidates.length} candidates in parallel...`);
 
-        const [research, liveOpts] = await Promise.all([
-          Pipeline.callAgent('agent2', AGENT_PROMPTS.researchAnalyst, {
-            task: 'analyze_candidate',
-            ticker: candidate.ticker,
-            quote: marketData.quotes[candidate.ticker],
-            sector: candidate.sector,
-            macroRegime: macroResult.regime
-          }, prefs.workerUrl),
-          Phase5.fetchLiveOptionsChain(candidate.ticker, null, null, prefs.workerUrl)
-            .catch(() => null)
-        ]);
+      const researchBatch = await Promise.all(
+        topCandidates.map(candidate =>
+          Promise.all([
+            Pipeline.callAgent('agent2', AGENT_PROMPTS.researchAnalyst, {
+              task:        'analyze_candidate',
+              ticker:      candidate.ticker,
+              quote:       marketData.quotes[candidate.ticker],
+              sector:      candidate.sector,
+              macroRegime: macroResult.regime
+            }, prefs.workerUrl),
+            Phase5.fetchLiveOptionsChain(candidate.ticker, null, null, prefs.workerUrl)
+              .catch(() => null)
+          ]).then(([research, liveOpts]) => ({ candidate, research, liveOpts }))
+        )
+      );
 
-        const quickScore = (research.technicalScore + research.fundamentalScore + research.catalystScore) * 2;
+      // Score and sort — any score ≥ 32 qualifies, otherwise take top 3 anyway
+      const scored = researchBatch.map(r => ({
+        ...r,
+        quickScore: (r.research.technicalScore + r.research.fundamentalScore + r.research.catalystScore) * 2
+      })).sort((a, b) => b.quickScore - a.quickScore);
 
-        if (quickScore >= 36 || i === rankedCandidates.length - 1) {
-          // Good enough or last option — use this candidate
-          topCandidate    = candidate;
-          researchResult  = research;
-          liveOptionsData = liveOpts;
-          AgentUI.setAgentStatus('agent2', 'complete',
-            `Tech: ${research.technicalScore}/10 | Fund: ${research.fundamentalScore}/10 | Cat: ${research.catalystScore}/10`);
-          break;
-        } else {
-          AgentUI.setAgentStatus('agent2', 'running',
-            `${candidate.ticker} score too low (${quickScore}/60) — trying next candidate...`);
-        }
-      }
+      const qualifiedBatch = scored.filter(r => r.quickScore >= 32);
+      const finalBatch     = qualifiedBatch.length >= 2 ? qualifiedBatch.slice(0, 5) : scored.slice(0, 3);
 
-      if (!topCandidate) { Pipeline.finish(results, 'no_candidates'); return; }
+      AgentUI.setAgentStatus('agent2', 'complete',
+        `${finalBatch.length} candidates qualified — Tech/Fund/Cat scored`);
 
-      scanLog.unshift({ ticker: topCandidate.ticker, date: new Date().toISOString(), tier: tierCycle });
+      if (!finalBatch.length) { Pipeline.finish(results, 'no_candidates'); return; }
+
+      // Update scan log with the top ticker
+      scanLog.unshift({ ticker: finalBatch[0].candidate.ticker, date: new Date().toISOString(), tier: tierCycle });
       Storage.set('atis_scanLog', scanLog.slice(0, 20));
 
-      results.agents.agent2 = researchResult;
-      AgentUI.setAgentStatus('agent2', 'complete',
-        `Tech: ${researchResult.technicalScore}/10 | Fund: ${researchResult.fundamentalScore}/10 | Cat: ${researchResult.catalystScore}/10`);
-      AgentUI.setAgentStatus('agent16', 'running', liveOptionsData ? 'Live data loaded — analyzing...' : 'Estimating from model...');
-
-      // ── WAVE 4: Risk + Quant in parallel ────────────────────────
-      AgentUI.setAgentStatus('agent5', 'running', 'Evaluating risk...');
+      // ── WAVE 4: Risk + Quant on EACH candidate in parallel ──────
+      AgentUI.setAgentStatus('agent5', 'running', `Risk-checking ${finalBatch.length} candidates...`);
       AgentUI.setAgentStatus('agent4', 'running', 'Statistical validation...');
 
-      const [riskResult, quantResult] = await Promise.all([
-        Pipeline.callAgent('agent5', AGENT_PROMPTS.riskManager, {
-          task: 'evaluate_risk',
-          ticker: topCandidate.ticker,
-          accountValue: portfolio.currentValue,
-          cashAvailable: portfolio.cashAvailable,
-          peakValue: portfolio.peakValue,
-          activePositions: portfolio.positions.length,
-          dailyPLPercent: riskState.dailyPLPercent || 0,
-          weeklyPLPercent: riskState.weeklyPLPercent || 0,
-          monthlyPLPercent: riskState.monthlyPLPercent || 0,
-          hardFloor: 250,
-          macroRegime: macroResult.regime,
-          compositeScore: (researchResult.technicalScore + researchResult.fundamentalScore + researchResult.catalystScore) * 2,
-          sectorExposure: portfolio.exposure?.sectors || {},
-          candidateSector: topCandidate.sector
-        }, prefs.workerUrl),
-        Pipeline.callAgent('agent4', AGENT_PROMPTS_P4.quantResearcher, {
-          task: 'quant_validation',
-          ticker: topCandidate.ticker,
-          technicalScore: researchResult.technicalScore,
-          trend: researchResult.technical?.trend,
-          rsiSignal: researchResult.technical?.rsiSignal,
-          volumeConfirmation: researchResult.technical?.volumeConfirmation,
-          accountValue: portfolio.currentValue,
-          positionCount: portfolio.positions.length
-        }, prefs.workerUrl)
-      ]);
+      const riskQuantBatch = await Promise.all(
+        finalBatch.map(({ candidate, research, liveOpts }) =>
+          Promise.all([
+            Pipeline.callAgent('agent5', AGENT_PROMPTS.riskManager, {
+              task:             'evaluate_risk',
+              ticker:           candidate.ticker,
+              accountValue:     portfolio.currentValue,
+              cashAvailable:    portfolio.cashAvailable,
+              peakValue:        portfolio.peakValue,
+              activePositions:  portfolio.positions.length,
+              dailyPLPercent:   riskState.dailyPLPercent || 0,
+              weeklyPLPercent:  riskState.weeklyPLPercent || 0,
+              monthlyPLPercent: riskState.monthlyPLPercent || 0,
+              hardFloor:        250,
+              macroRegime:      macroResult.regime,
+              compositeScore:   (research.technicalScore + research.fundamentalScore + research.catalystScore) * 2,
+              sectorExposure:   portfolio.exposure?.sectors || {},
+              candidateSector:  candidate.sector
+            }, prefs.workerUrl),
+            Pipeline.callAgent('agent4', AGENT_PROMPTS_P4.quantResearcher, {
+              task:                'quant_validation',
+              ticker:              candidate.ticker,
+              technicalScore:      research.technicalScore,
+              trend:               research.technical?.trend,
+              rsiSignal:           research.technical?.rsiSignal,
+              volumeConfirmation:  research.technical?.volumeConfirmation,
+              accountValue:        portfolio.currentValue,
+              positionCount:       portfolio.positions.length
+            }, prefs.workerUrl)
+          ]).then(([riskResult, quantResult]) => ({ candidate, research, liveOpts, riskResult, quantResult }))
+        )
+      );
 
-      results.agents.agent5 = riskResult;
-      results.agents.agent4 = quantResult;
-      AgentUI.setAgentStatus('agent4', 'complete', `Quant: ${quantResult.quantScore}/10 | ${quantResult.recommendation}`);
+      // Drop any hard-rejected by risk manager
+      const approvedBatch = riskQuantBatch.filter(r => r.riskResult.decision !== 'REJECTED');
 
-      if (riskResult.decision === 'REJECTED') {
-        AgentUI.setAgentStatus('agent5', 'rejected', `REJECTED: ${riskResult.reason}`);
+      if (!approvedBatch.length) {
+        AgentUI.setAgentStatus('agent5', 'rejected', 'All candidates rejected by Risk Manager');
         Pipeline.finish(results, 'risk_rejected');
         return;
       }
-      AgentUI.setAgentStatus('agent5', 'complete',
-        `APPROVED — ${Utils.formatCurrency(riskResult.recommendedPositionDollar)} (${riskResult.recommendedPositionPercent}%)`);
 
-      // ── WAVE 5: CIO + Options Specialist in parallel ─────────────
-      AgentUI.setAgentStatus('agent14', 'running', 'Generating recommendation...');
+      AgentUI.setAgentStatus('agent4', 'complete', `Quant validated ${approvedBatch.length} candidates`);
+      AgentUI.setAgentStatus('agent5', 'complete', `${approvedBatch.length} approved by Risk Manager`);
 
-      const [cioResult, optionsResult] = await Promise.all([
-        Pipeline.callAgent('agent14', AGENT_PROMPTS.cio, {
-          task: 'final_review',
-          ticker: topCandidate.ticker,
-          macroRegime: macroResult.regime,
-          macroScore: macroResult.totalScore,
-          sector: topCandidate.sector,
-          technicalScore: researchResult.technicalScore,
-          fundamentalScore: researchResult.fundamentalScore,
-          catalystScore: researchResult.catalystScore,
-          riskDecision: riskResult.decision,
-          positionDollar: riskResult.recommendedPositionDollar,
-          positionPercent: riskResult.recommendedPositionPercent,
-          quote: marketData.quotes[topCandidate.ticker],
-          accountValue: portfolio.currentValue,
-          summary: researchResult.summary,
-          risks: researchResult.risks,
-          catalyst: researchResult.catalyst
-        }, prefs.workerUrl),
-        Pipeline.callAgent('agent16', AGENT_PROMPTS_P4.optionsSpecialist, {
-          task: 'options_analysis',
-          ticker: topCandidate.ticker,
-          price: marketData.quotes[topCandidate.ticker]?.regularMarketPrice,
-          trend: researchResult.technical?.trend,
-          macroRegime: macroResult.regime,
-          accountValue: portfolio.currentValue,
-          catalystExists: researchResult.catalyst?.exists,
-          liveIV: liveOptionsData?.bestCall?.impliedVolatility
-            ? Utils.round(liveOptionsData.bestCall.impliedVolatility * 100, 1) : null,
-          liveBid:    liveOptionsData?.bestCall?.bid,
-          liveAsk:    liveOptionsData?.bestCall?.ask,
-          liveOI:     liveOptionsData?.bestCall?.openInterest,
-          liveStrike: liveOptionsData?.bestCall?.strike,
-          liveExpiry: liveOptionsData?.bestCall?.expiry
-        }, prefs.workerUrl)
-      ]);
+      // ── WAVE 5: CIO + Options Specialist on each in parallel ────
+      AgentUI.setAgentStatus('agent14', 'running', `CIO reviewing ${approvedBatch.length} candidates...`);
+      AgentUI.setAgentStatus('agent16', 'running', 'Options analysis...');
 
-      results.agents.agent14 = cioResult;
-      AgentUI.setAgentStatus('agent14', 'complete', `${cioResult.scoreLabel} — Score: ${cioResult.scores.total}/60`);
+      const cioOptionsBatch = await Promise.all(
+        approvedBatch.map(({ candidate, research, liveOpts, riskResult, quantResult }) =>
+          Promise.all([
+            Pipeline.callAgent('agent14', AGENT_PROMPTS.cio, {
+              task:              'final_review',
+              ticker:            candidate.ticker,
+              macroRegime:       macroResult.regime,
+              macroScore:        macroResult.totalScore,
+              sector:            candidate.sector,
+              technicalScore:    research.technicalScore,
+              fundamentalScore:  research.fundamentalScore,
+              catalystScore:     research.catalystScore,
+              riskDecision:      riskResult.decision,
+              positionDollar:    riskResult.recommendedPositionDollar,
+              positionPercent:   riskResult.recommendedPositionPercent,
+              quote:             marketData.quotes[candidate.ticker],
+              accountValue:      portfolio.currentValue,
+              summary:           research.summary,
+              risks:             research.risks,
+              catalyst:          research.catalyst
+            }, prefs.workerUrl),
+            Pipeline.callAgent('agent16', AGENT_PROMPTS_P4.optionsSpecialist, {
+              task:           'options_analysis',
+              ticker:         candidate.ticker,
+              price:          marketData.quotes[candidate.ticker]?.regularMarketPrice,
+              trend:          research.technical?.trend,
+              macroRegime:    macroResult.regime,
+              accountValue:   portfolio.currentValue,
+              catalystExists: research.catalyst?.exists,
+              liveIV:         liveOpts?.bestCall?.impliedVolatility
+                ? Utils.round(liveOpts.bestCall.impliedVolatility * 100, 1) : null,
+              liveBid:    liveOpts?.bestCall?.bid,
+              liveAsk:    liveOpts?.bestCall?.ask,
+              liveOI:     liveOpts?.bestCall?.openInterest,
+              liveStrike: liveOpts?.bestCall?.strike,
+              liveExpiry: liveOpts?.bestCall?.expiry
+            }, prefs.workerUrl)
+          ]).then(([cioResult, optionsResult]) => {
+            // Attach live options data
+            if (liveOpts?.bestCall) {
+              const liveContract = Phase5.formatContract(liveOpts.bestCall, 'call');
+              optionsResult.liveContract      = liveContract;
+              optionsResult.liveDataAvailable = !!(liveContract?.premium && liveContract.premium > 0.50);
+              if (liveContract?.premium && liveContract.premium > 0.50) {
+                optionsResult.estimatedPremium  = liveContract.premium;
+                optionsResult.realPremium       = liveContract.premium;
+                optionsResult.realBid           = liveContract.bid;
+                optionsResult.realAsk           = liveContract.ask;
+                optionsResult.recommendedStrike = liveContract.strike;
+                optionsResult.recommendedExpiry = liveContract.expiry;
+              }
+            } else {
+              optionsResult.liveDataAvailable = false;
+            }
+            return { candidate, research, liveOpts, riskResult, quantResult, cioResult, optionsResult };
+          })
+        )
+      );
 
-      // Attach live options data — use Worker's recommended contract directly
-      if (liveOptionsData?.bestCall) {
-        const liveContract = Phase5.formatContract(liveOptionsData.bestCall, 'call');
-        console.log('Live contract:', liveContract);
-        optionsResult.liveContract      = liveContract;
-        optionsResult.liveDataAvailable = !!(liveContract?.premium && liveContract.premium > 0.50);
-        if (liveContract?.premium && liveContract.premium > 0.50) {
-          optionsResult.estimatedPremium  = liveContract.premium;
-          optionsResult.realPremium       = liveContract.premium;
-          optionsResult.realBid           = liveContract.bid;
-          optionsResult.realAsk           = liveContract.ask;
-          // Use live strike/expiry if AI's recommendation has no real price
-          optionsResult.recommendedStrike = liveContract.strike;
-          optionsResult.recommendedExpiry = liveContract.expiry;
-        }
-      } else {
-        optionsResult.liveDataAvailable = false;
-      }
-      results.agents.agent16 = optionsResult;
-      AgentUI.setAgentStatus('agent16', 'complete',
-        `${optionsResult.recommendedStrategy} | ${optionsResult.liveDataAvailable ? '📡 Live' : '📊 Est'} $${optionsResult.estimatedPremium} | ${optionsResult.optionsScore}/10`);
+      AgentUI.setAgentStatus('agent14', 'complete',
+        `CIO scored: ${cioOptionsBatch.map(r => `${r.candidate.ticker} ${r.cioResult.scores.total}/60`).join(' · ')}`);
+      AgentUI.setAgentStatus('agent16', 'complete', 'Options tiers ready for all candidates');
 
-      // ── WAVE 6: Compliance + Execution + Strategy in parallel ────
+      // ── WAVE 6: Compliance + Execution + Strategy (top candidate only) ──
+      // Run final wave on highest-scoring candidate to save API calls
+      const sortedByScore = [...cioOptionsBatch].sort((a, b) => b.cioResult.scores.total - a.cioResult.scores.total);
+      const top = sortedByScore[0];
+
       AgentUI.setAgentStatus('agent6',  'running', 'Compliance check...');
       AgentUI.setAgentStatus('agent7',  'running', 'Structuring order...');
       AgentUI.setAgentStatus('agent17', 'running', 'Strategy review...');
 
       const [complianceResult, executionResult, strategyResult] = await Promise.all([
         Pipeline.callAgent('agent6', AGENT_PROMPTS_P4.complianceOfficer, {
-          task: 'compliance_check',
-          ticker: topCandidate.ticker,
-          macroClassified: true,
-          sectorEvaluated: true,
-          riskManagerApproved: riskResult.decision === 'APPROVED',
-          positionSize: riskResult.recommendedPositionDollar,
-          accountValue: portfolio.currentValue,
-          stopLoss: cioResult.tradeAlert?.stopLoss,
-          target: cioResult.tradeAlert?.target,
-          riskReward: cioResult.tradeAlert?.riskReward,
-          totalScore: cioResult.scores.total
+          task:                 'compliance_check',
+          ticker:               top.candidate.ticker,
+          macroClassified:      true,
+          sectorEvaluated:      true,
+          riskManagerApproved:  top.riskResult.decision === 'APPROVED',
+          positionSize:         top.riskResult.recommendedPositionDollar,
+          accountValue:         portfolio.currentValue,
+          stopLoss:             top.cioResult.tradeAlert?.stopLoss,
+          target:               top.cioResult.tradeAlert?.target,
+          riskReward:           top.cioResult.tradeAlert?.riskReward,
+          totalScore:           top.cioResult.scores.total
         }, prefs.workerUrl),
         Pipeline.callAgent('agent7', AGENT_PROMPTS_P4.executionSpecialist, {
-          task: 'structure_order',
-          ticker: topCandidate.ticker,
-          price: marketData.quotes[topCandidate.ticker]?.regularMarketPrice,
-          positionDollar: riskResult.recommendedPositionDollar,
-          accountValue: portfolio.currentValue,
-          entryZone: cioResult.tradeAlert?.entryZone,
-          stopLoss: cioResult.tradeAlert?.stopLoss,
-          target: cioResult.tradeAlert?.target,
-          recommendedStrategy: optionsResult.recommendedStrategy,
-          recommendedStrike: optionsResult.recommendedStrike,
-          recommendedExpiry: optionsResult.recommendedExpiry
+          task:                'structure_order',
+          ticker:              top.candidate.ticker,
+          price:               marketData.quotes[top.candidate.ticker]?.regularMarketPrice,
+          positionDollar:      top.riskResult.recommendedPositionDollar,
+          accountValue:        portfolio.currentValue,
+          entryZone:           top.cioResult.tradeAlert?.entryZone,
+          stopLoss:            top.cioResult.tradeAlert?.stopLoss,
+          target:              top.cioResult.tradeAlert?.target,
+          recommendedStrategy: top.optionsResult.recommendedStrategy,
+          recommendedStrike:   top.optionsResult.recommendedStrike,
+          recommendedExpiry:   top.optionsResult.recommendedExpiry
         }, prefs.workerUrl),
         Pipeline.callAgent('agent17', AGENT_PROMPTS_P4.strategyDirector, {
-          task: 'strategy_review',
-          accountValue: portfolio.currentValue,
-          startingCapital: portfolio.startingCapital || 1500,
-          totalScore: cioResult.scores.total,
-          riskDecision: riskResult.decision,
-          quantRecommendation: quantResult.recommendation,
-          complianceViolations: [],
-          regime: macroResult.regime,
-          ticker: topCandidate.ticker,
-          recentTradeCount: Storage.getTradeLog().length
+          task:                'strategy_review',
+          accountValue:        portfolio.currentValue,
+          startingCapital:     portfolio.startingCapital || 1500,
+          totalScore:          top.cioResult.scores.total,
+          riskDecision:        top.riskResult.decision,
+          quantRecommendation: top.quantResult.recommendation,
+          complianceViolations:[],
+          regime:              macroResult.regime,
+          ticker:              top.candidate.ticker,
+          recentTradeCount:    Storage.getTradeLog().length
         }, prefs.workerUrl)
       ]);
 
@@ -422,15 +396,33 @@ const Pipeline = {
       AgentUI.setAgentStatus('agent7',  'complete', `${executionResult.orderType} @ $${executionResult.limitPrice} | Risk: ${Utils.formatCurrency(executionResult.maxRisk)}`);
       AgentUI.setAgentStatus('agent17', 'complete', `System: ${strategyResult.systemHealth} | Progress: ${strategyResult.smallAccountProgress?.progressPercent?.toFixed(1)}%`);
 
-      results.finalRecommendation = cioResult;
+      // ── Build candidate queue ────────────────────────────────────
+      // Each entry in the queue is everything AgentUI needs to render one card
+      const candidateQueue = sortedByScore.map(r => ({
+        candidate:       r.candidate,
+        quote:           marketData.quotes[r.candidate.ticker],
+        research:        r.research,
+        riskResult:      r.riskResult,
+        quantResult:     r.quantResult,
+        cioResult:       r.cioResult,
+        optionsResult:   r.optionsResult,
+        optionsRawCalls: r.liveOpts?.allCalls || [],
+        // Execution data only for top candidate
+        executionPlan:   r.candidate.ticker === top.candidate.ticker ? executionResult : null,
+        compliance:      r.candidate.ticker === top.candidate.ticker ? complianceResult : null
+      }));
+
+      results.candidateQueue      = candidateQueue;
+      results.finalRecommendation = top.cioResult;
       results.executionPlan       = executionResult;
-      results.optionsAnalysis     = optionsResult;
-      // Store raw calls for 3-tier display
-      results.optionsRawCalls     = liveOptionsData?.allCalls || [];
+      results.optionsAnalysis     = top.optionsResult;
+      results.optionsRawCalls     = top.liveOpts?.allCalls || [];
       results.status              = 'awaiting_approval';
 
       Pipeline.saveResults(results);
-      AgentUI.showApprovalGate(cioResult, riskResult, topCandidate, marketData.quotes[topCandidate.ticker]);
+
+      // Show stacked candidate queue instead of single approval gate
+      AgentUI.showCandidateQueue(candidateQueue);
 
     } catch (err) {
       console.error('Pipeline error:', err);
@@ -439,7 +431,7 @@ const Pipeline = {
       Utils.toast('Pipeline error: ' + err.message, 'error');
       results.status = 'error';
     } finally {
-      Pipeline.state.running     = false;
+      Pipeline.state.running      = false;
       Pipeline.state.currentAgent = null;
     }
   },
@@ -451,7 +443,6 @@ const Pipeline = {
     const prefs = Storage.getPrefs();
     if (!prefs.workerUrl) { Utils.toast('Worker URL not set in Agents tab', 'error'); return; }
 
-    // Use user-chosen budget from the dropdown, default to $500 if not set
     const budgetEl = document.getElementById('marketScanBudget');
     const maxCost  = budgetEl ? parseInt(budgetEl.value) : 500;
 
@@ -478,10 +469,7 @@ const Pipeline = {
       AgentUI.setAgentStatus('data', 'complete',
         `Found ${scan.candidates.length} stocks with options under $${maxCost} — top movers: ${scan.tickers.slice(0,5).join(', ')}`);
 
-      // Reset running state so Pipeline.run() can proceed
       Pipeline.state.running = false;
-
-      // Run full pipeline on the market scan tickers
       await Pipeline.run(scan.tickers.slice(0, 15), scan.candidates);
 
     } catch (err) {
@@ -595,9 +583,8 @@ const Pipeline = {
       Storage.addTrade(trade);
       Utils.toast(`Trade logged: ${trade.ticker} — ${trade.tradeId}`, 'success');
 
-      // Phase 5 auto-log
-      const optionsResult  = log[idx]?.optionsAnalysis  || Pipeline.state.results?.optionsAnalysis;
-      const executionResult = log[idx]?.executionPlan   || Pipeline.state.results?.executionPlan;
+      const optionsResult   = log[idx]?.optionsAnalysis  || Pipeline.state.results?.optionsAnalysis;
+      const executionResult = log[idx]?.executionPlan    || Pipeline.state.results?.executionPlan;
       if (optionsResult && executionResult) {
         Phase5UI.autoLogFromPipeline(
           { tradeAlert: tradeData, scores: { total: tradeData.totalScore } },
