@@ -329,9 +329,22 @@
       <!-- VIEW: AI PIPELINE -->
       <div class="scanner-view" id="scanner-view-pipeline">
         <div class="pipeline-controls">
-          <button class="btn btn--primary pipeline-run-btn" id="runPipelineBtn">▶ Run AI Pipeline</button>
+          <button class="btn btn--primary pipeline-run-btn" id="runPipelineBtn">▶ Scan My Watchlist</button>
+          <div style="display:flex;align-items:center;gap:6px">
+            <button class="btn btn--secondary pipeline-run-btn" id="runMarketScanBtn" style="background:rgba(0,212,255,0.1);border-color:var(--cyan);color:var(--cyan)">🌐 Scan Full Market</button>
+            <select id="marketScanBudget" style="font-family:var(--font-mono);font-size:11px;background:var(--bg-surface);border:1px solid var(--cyan);border-radius:4px;padding:4px 8px;color:var(--cyan);cursor:pointer;height:32px">
+              <option value="50">Under $50</option>
+              <option value="100">Under $100</option>
+              <option value="200">Under $200</option>
+              <option value="500" selected>Under $500</option>
+              <option value="1000">Under $1,000</option>
+              <option value="2000">Under $2,000</option>
+              <option value="5000">Under $5,000</option>
+              <option value="99999">Any price</option>
+            </select>
+          </div>
           <button class="btn btn--secondary" onclick="App.resetPipeline()" style="font-size:11px">↺ Reset</button>
-          <span class="pipeline-desc">Scans 50 tickers — AI finds best setup — you decide</span>
+          <span class="pipeline-desc" id="pipelineDesc">AI finds the best setup — you decide</span>
         </div>
         <div id="pipelineContainer">
           <div class="pipeline-idle">
