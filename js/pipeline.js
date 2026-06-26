@@ -160,27 +160,53 @@ const Pipeline = {
 
       if (!filteredCandidates.length) { Pipeline.finish(results, 'filtered_out'); return; }
 
-      // Rotate to avoid always picking same ticker
-      const lastTicker   = scanLog[0]?.ticker;
-      const rotated      = filteredCandidates.filter(c => c.ticker !== lastTicker);
-      const topCandidate = rotated[0] || filteredCandidates[0];
+      // Build ranked candidate list — rotate to avoid repeats, try up to 3
+      const lastTicker     = scanLog[0]?.ticker;
+      const rotated        = filteredCandidates.filter(c => c.ticker !== lastTicker);
+      const rankedCandidates = rotated.length ? rotated : filteredCandidates;
+
+      let topCandidate    = null;
+      let researchResult  = null;
+      let liveOptionsData = null;
+      let cioScoreTotal   = 0;
+
+      // Try up to 3 candidates — stop when we find one scoring 42+
+      for (let i = 0; i < Math.min(rankedCandidates.length, 3); i++) {
+        const candidate = rankedCandidates[i];
+        AgentUI.setAgentStatus('agent2', 'running', `Analyzing ${candidate.ticker} (${i + 1}/${Math.min(rankedCandidates.length, 3)})...`);
+
+        const [research, liveOpts] = await Promise.all([
+          Pipeline.callAgent('agent2', AGENT_PROMPTS.researchAnalyst, {
+            task: 'analyze_candidate',
+            ticker: candidate.ticker,
+            quote: marketData.quotes[candidate.ticker],
+            sector: candidate.sector,
+            macroRegime: macroResult.regime
+          }, prefs.workerUrl),
+          Phase5.fetchLiveOptionsChain(candidate.ticker, null, null, prefs.workerUrl)
+            .catch(() => null)
+        ]);
+
+        const quickScore = (research.technicalScore + research.fundamentalScore + research.catalystScore) * 2;
+
+        if (quickScore >= 36 || i === rankedCandidates.length - 1) {
+          // Good enough or last option — use this candidate
+          topCandidate    = candidate;
+          researchResult  = research;
+          liveOptionsData = liveOpts;
+          AgentUI.setAgentStatus('agent2', 'complete',
+            `Tech: ${research.technicalScore}/10 | Fund: ${research.fundamentalScore}/10 | Cat: ${research.catalystScore}/10`);
+          break;
+        } else {
+          AgentUI.setAgentStatus('agent2', 'running',
+            `${candidate.ticker} score too low (${quickScore}/60) — trying next candidate...`);
+        }
+      }
+
+      if (!topCandidate) { Pipeline.finish(results, 'no_candidates'); return; }
+
       scanLog.unshift({ ticker: topCandidate.ticker, date: new Date().toISOString(), tier: tierCycle });
       Storage.set('atis_scanLog', scanLog.slice(0, 20));
-
-      // ── WAVE 3: Research + Live Options in parallel ──────────────
-      AgentUI.setAgentStatus('agent2', 'running', `Analyzing ${topCandidate.ticker}...`);
-
-      const [researchResult, liveOptionsData] = await Promise.all([
-        Pipeline.callAgent('agent2', AGENT_PROMPTS.researchAnalyst, {
-          task: 'analyze_candidate',
-          ticker: topCandidate.ticker,
-          quote: marketData.quotes[topCandidate.ticker],
-          sector: topCandidate.sector,
-          macroRegime: macroResult.regime
-        }, prefs.workerUrl),
-        Phase5.fetchLiveOptionsChain(topCandidate.ticker, null, null, prefs.workerUrl)
-          .catch(() => null)
-      ]);
 
       results.agents.agent2 = researchResult;
       AgentUI.setAgentStatus('agent2', 'complete',
