@@ -33,27 +33,64 @@ const Pipeline = {
     const prefs = Storage.getPrefs();
     if (!prefs.workerUrl) { Utils.toast('Worker URL not set in Agents tab', 'error'); return; }
 
-    Pipeline.state.running = true;
-    Pipeline.state.error   = null;
-    Pipeline.state.scanId  = Utils.generateScanId();
+    Pipeline.state.running  = true;
+    Pipeline.state.error    = null;
+    Pipeline.state.scanId   = Utils.generateScanId();
 
     const results = {
-      scanId: Pipeline.state.scanId,
-      timestamp: Date.now(),
+      scanId:              Pipeline.state.scanId,
+      timestamp:           Date.now(),
       watchlist,
-      agents: {},
+      agents:              {},
       finalRecommendation: null,
-      status: 'running'
+      status:              'running'
     };
 
     Pipeline.state.results = results;
-    AgentUI.startPipeline(results.scanId);
+
+    // Only reset UI if NOT coming from market scan (which already set up the UI)
+    if (!marketCandidates) {
+      AgentUI.startPipeline(results.scanId);
+    } else {
+      // Update scan ID in existing UI
+      AgentUI.currentScanId = results.scanId;
+      const scanIdEl = document.querySelector('.pipeline-scan-id');
+      if (scanIdEl) scanIdEl.textContent = results.scanId;
+    }
 
     try {
       // ── WAVE 0: Data fetch ──────────────────────────────────────
-      AgentUI.setAgentStatus('data', 'running', 'Fetching market data...');
-      const marketData = await Pipeline.fetchAllData(watchlist, prefs.workerUrl);
-      AgentUI.setAgentStatus('data', 'complete', `Data loaded for ${Object.keys(marketData.quotes || {}).length} tickers`);
+      let marketData;
+      if (marketCandidates) {
+        // Market scan already fetched data — build marketData from scan results
+        AgentUI.setAgentStatus('data', 'running', 'Loading market data for found tickers...');
+        const quotes = {};
+        marketCandidates.forEach(c => {
+          quotes[c.ticker] = {
+            ticker:                     c.ticker,
+            regularMarketPrice:         c.price,
+            regularMarketChange:        c.change || 0,
+            regularMarketChangePercent: c.changePct || 0,
+            regularMarketVolume:        c.volume || 0,
+          };
+        });
+        // Also fetch indices
+        const idxData = await Pipeline.fetchAllData(['SPY','QQQ','IWM','^VIX'], prefs.workerUrl)
+          .catch(() => ({ quotes: {}, macro: {}, sectors: {}, indices: {} }));
+        marketData = {
+          quotes:  { ...quotes, ...idxData.quotes },
+          macro:   idxData.macro   || {},
+          sectors: idxData.sectors || {},
+          indices: idxData.indices || {}
+        };
+        AgentUI.setAgentStatus('data', 'complete',
+          `Market scan data ready — ${marketCandidates.length} affordable stocks`);
+      } else {
+        AgentUI.setAgentStatus('data', 'running', 'Fetching market data...');
+        marketData = await Pipeline.fetchAllData(watchlist, prefs.workerUrl);
+        AgentUI.setAgentStatus('data', 'complete',
+          `Data loaded for ${Object.keys(marketData.quotes || {}).length} tickers`);
+      }
 
       // ── WAVE 1: Macro (must go first) ───────────────────────────
       AgentUI.setAgentStatus('agent15', 'running', 'Classifying market regime...');
@@ -441,10 +478,8 @@ const Pipeline = {
       AgentUI.setAgentStatus('data', 'complete',
         `Found ${scan.candidates.length} stocks with options under $${maxCost} — top movers: ${scan.tickers.slice(0,5).join(', ')}`);
 
-      // Log what we found for transparency
-      console.log('Market scan results:', scan.candidates.map(c =>
-        `${c.ticker} $${c.price} | cheapest call: $${c.cheapestCost} (${c.affordability})`
-      ).join('\n'));
+      // Reset running state so Pipeline.run() can proceed
+      Pipeline.state.running = false;
 
       // Run full pipeline on the market scan tickers
       await Pipeline.run(scan.tickers.slice(0, 15), scan.candidates);
