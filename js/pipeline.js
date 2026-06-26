@@ -1,5 +1,22 @@
 // pipeline.js — Parallel Agent Pipeline for ATIS Phase 5
 
+// Embed prompts here as fallback in case agent-prompts.js fails to load
+if (typeof AGENT_PROMPTS === 'undefined') {
+  window.AGENT_PROMPTS = {
+    macroStrategist: `You are the Chief Macro Strategist for an institutional trading system. Classify the current market regime and score macro conditions 0-10 per category. REGIME: Risk-On=40-50, Neutral=25-39, Risk-Off=0-24. Respond ONLY in valid JSON. Required format: {"regime":"Neutral","totalScore":30,"scores":{"breadth":6,"trend":6,"volatility":6,"liquidity":6,"economic":6},"notes":"Mixed conditions.","scoreThreshold":42,"positionSizeAdjustment":1.0}`,
+
+    juniorAnalyst: `You are the Junior Analyst. Screen the watchlist and identify 5 candidates across ALL price ranges. ALWAYS include at least 1-2 stocks under $50 and 1-2 stocks $50-$200. If a tierHint is provided, prioritize those tickers. Tag each with affordabilityTier: nano(under $50), micro($50-150), standard($150-400), premium(over $400). CRITICAL: Always return exactly 5 candidates. Respond ONLY in valid JSON. Required format: {"candidates":[{"ticker":"BAC","reason":"Breaking out on volume","priceAction":"bullish","volumeSignal":"high","affordabilityTier":"nano","estimatedOptionCost":"Under $100","priority":1}],"scanNotes":"Market scan summary"}`,
+
+    sectorHead: `You are the Sector Head. Filter candidates by sector strength. CRITICAL: Always pass at least 1-2 candidates through. Never return empty filteredCandidates. Respond ONLY in valid JSON. Required format: {"filteredCandidates":[{"ticker":"BAC","sector":"Financials","sectorETF":"XLF","sectorStrength":"leading","keepReason":"Strong sector momentum","rank":1}],"removedCandidates":[],"leadingSectors":["Financials"],"laggingSectors":["Energy"]}`,
+
+    researchAnalyst: `You are the Research Analyst. Perform technical and fundamental analysis. Score each 0-10. Respond ONLY in valid JSON. Required format: {"ticker":"BAC","technicalScore":7,"fundamentalScore":7,"catalystScore":5,"technical":{"trend":"bullish","trendStrength":3,"rsiSignal":"bullish","macdSignal":"bullish","volumeConfirmation":true,"keyLevel":"Support at $45","setup":"Breakout above resistance"},"fundamental":{"revenueGrowth":"moderate","earningsQuality":"strong","valuation":"fair","competitivePosition":"strong"},"catalyst":{"exists":false,"description":null,"timing":"none"},"summary":"Strong technical setup with solid fundamentals.","risks":"Market volatility could reverse move"}`,
+
+    riskManager: `You are the Risk Manager with VETO AUTHORITY. Hard floor $250. Max position 20% of account. Working capital = account - $250. Base position = 10% of working capital. Minimum position $25. Respond ONLY in valid JSON. Required format: {"decision":"APPROVED","reason":null,"recommendedPositionDollar":175,"recommendedPositionPercent":8.75,"workingCapital":1750,"riskFlags":[],"drawdownStatus":"normal","positionSizeMultiplier":1.0}`,
+
+    cio: `You are the Chief Investment Officer. Calculate 60-point composite score: Technical(0-10)+Fundamental(0-10)+Catalyst(0-10)+Risk(0-10)+Market(0-10)+Macro(0-10). Thresholds: REJECT<35, MONITOR 35-41, QUALIFIED 42-49, HIGH CONVICTION 50-60. Always include a beginnerTip that protects the reader. Never use "guaranteed" or "can't lose". Respond ONLY in valid JSON. Required format: {"recommendation":"MONITOR","scores":{"technical":7,"fundamental":7,"catalyst":5,"risk":6,"market":5,"macro":6,"total":36},"scoreLabel":"MONITOR ONLY","tradeAlert":{"ticker":"BAC","assetType":"equity","setupType":"Momentum Breakout","marketRegime":"Neutral","entryZone":"$47.50 - $48.00","stopLoss":"$45.00","target":"$52.00","riskReward":"2:1","positionSize":"$175","timeframe":"2-4 weeks","confidenceLevel":"Medium","thesis":"BAC is breaking out above key resistance on elevated volume suggesting institutional buying. The financial sector is showing relative strength. However the neutral macro regime limits conviction.","risks":"Rate concerns and macro uncertainty could reverse this move quickly.","invalidation":"A close below $45 would invalidate this setup entirely.","beginnerTip":"Only risk money you can afford to lose completely — options can expire worthless even when the direction is right."}}`
+  };
+}
+
 const Pipeline = {
 
   STORAGE_KEY: 'atis_pipelineResults',
