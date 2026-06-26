@@ -119,11 +119,32 @@ const Pipeline = {
       }
       AgentUI.setAgentStatus('agent1', 'complete', `${scanResult.candidates.length} candidates identified`);
 
+      // Filter out stocks too expensive for this account size
+      // $2000 account → max stock price $200 (options ~$100-500/contract)
+      const maxStockPrice = portfolio.currentValue < 2000 ? 200
+        : portfolio.currentValue < 5000 ? 400
+        : 99999;
+
+      const affordableCandidates = scanResult.candidates.filter(c => {
+        const price = marketData.quotes[c.ticker]?.regularMarketPrice || 0;
+        return price === 0 || price <= maxStockPrice;
+      });
+
+      // Use affordable if we have at least 2, otherwise fall back to all
+      const candidatesForSector = affordableCandidates.length >= 2
+        ? affordableCandidates
+        : scanResult.candidates;
+
+      if (affordableCandidates.length < scanResult.candidates.length) {
+        AgentUI.setAgentStatus('agent1', 'complete',
+          `${candidatesForSector.length} affordable candidates (filtered ${scanResult.candidates.length - affordableCandidates.length} expensive)`);
+      }
+
       // Agent 3 runs after Agent 1 so it has the real candidate list
       AgentUI.setAgentStatus('agent3', 'running', 'Filtering by sector strength...');
       const sectorPreResult = await Pipeline.callAgent('agent3', AGENT_PROMPTS.sectorHead, {
         task: 'filter_by_sector',
-        candidates: scanResult.candidates,
+        candidates: candidatesForSector,
         sectorData: marketData.sectors,
         macroRegime: macroResult.regime
       }, prefs.workerUrl);
