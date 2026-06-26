@@ -34,7 +34,29 @@ const Scanner = {
       });
     }
 
-    // Scanner controls
+    // Market scan button
+    const marketBtn = document.getElementById('runMarketScanBtn');
+    if (marketBtn) {
+      const newMarketBtn = marketBtn.cloneNode(true);
+      marketBtn.parentNode.replaceChild(newMarketBtn, marketBtn);
+      newMarketBtn.addEventListener('click', async () => {
+        if (Pipeline.state.running) {
+          const elapsed = Date.now() - (Pipeline.state.startTime || 0);
+          if (elapsed > 300000) {
+            Pipeline.state.running = false;
+          } else {
+            Utils.toast('Pipeline is running — please wait', 'warn');
+            return;
+          }
+        }
+        Pipeline.state.startTime = Date.now();
+        const desc = document.getElementById('pipelineDesc');
+        if (desc) desc.textContent = '🌐 Scanning full market for affordable options...';
+        await Pipeline.runMarketScan();
+      });
+    }
+
+    // Watchlist scan button
     document.getElementById('runScanBtn')?.addEventListener('click', Scanner.runScan);
     document.getElementById('scanTickerBtn')?.addEventListener('click', Scanner.scanSingleTicker);
 
