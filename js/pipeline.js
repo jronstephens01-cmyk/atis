@@ -198,7 +198,7 @@ const Pipeline = {
               sector:      candidate.sector,
               macroRegime: macroResult.regime
             }, prefs.workerUrl),
-            Phase5.fetchLiveOptionsChain(candidate.ticker, null, null, prefs.workerUrl)
+            Phase5.fetchLiveOptionsChain(candidate.ticker, null, null, prefs.workerUrl, true)
               .catch(() => null)
           ]).then(([research, liveOpts]) => ({ candidate, research, liveOpts }))
         )
@@ -310,7 +310,9 @@ const Pipeline = {
               liveAsk:    liveOpts?.bestCall?.ask,
               liveOI:     liveOpts?.bestCall?.openInterest,
               liveStrike: liveOpts?.bestCall?.strike,
-              liveExpiry: liveOpts?.bestCall?.expiry
+              liveExpiry: liveOpts?.bestCall?.expiry,
+              trend: research.technical?.trend,
+              bearish: research.technical?.trend === 'bearish' || research.technical?.trend === 'downtrend'
             }, prefs.workerUrl)
           ]).then(([cioResult, optionsResult]) => {
             // Attach live options data
@@ -407,6 +409,7 @@ const Pipeline = {
         cioResult:       r.cioResult,
         optionsResult:   r.optionsResult,
         optionsRawCalls: r.liveOpts?.allCalls || [],
+        optionsRawPuts:  r.liveOpts?.allPuts  || [],
         // Execution data only for top candidate
         executionPlan:   r.candidate.ticker === top.candidate.ticker ? executionResult : null,
         compliance:      r.candidate.ticker === top.candidate.ticker ? complianceResult : null
@@ -417,6 +420,7 @@ const Pipeline = {
       results.executionPlan       = executionResult;
       results.optionsAnalysis     = top.optionsResult;
       results.optionsRawCalls     = top.liveOpts?.allCalls || [];
+      results.optionsRawPuts      = top.liveOpts?.allPuts  || [];
       results.status              = 'awaiting_approval';
 
       Pipeline.saveResults(results);
