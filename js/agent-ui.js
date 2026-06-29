@@ -1,10 +1,11 @@
-// agent-ui.js — Pipeline UI, Candidate Queue, and Approval Gate
+// agent-ui.js — Pipeline UI, Candidate Queue, Approval Gate
 
 const AgentUI = {
 
   currentScanId: null,
   _timer: null,
   _startTime: null,
+  _queueData: null,
 
   // ============================================================
   // PIPELINE START
@@ -65,7 +66,6 @@ const AgentUI = {
     const statusEl  = document.getElementById(`status-${id}`);
     const indicator = document.getElementById(`indicator-${id}`);
     if (!step) return;
-
     step.className = `pipeline-step step--${state}`;
     if (statusEl)  statusEl.textContent = message || '';
     if (indicator) {
@@ -114,50 +114,37 @@ const AgentUI = {
   },
 
   // ============================================================
-  // CANDIDATE QUEUE — Stacked list of all candidates
+  // CANDIDATE QUEUE — Stacked list
   // ============================================================
   showCandidateQueue(candidateQueue) {
     clearInterval(AgentUI._timer);
-
     const gate = document.getElementById('approvalGate');
     if (!gate) return;
 
-    // Sort by CIO score descending
     const sorted = [...candidateQueue].sort((a, b) =>
       (b.cioResult?.scores?.total || 0) - (a.cioResult?.scores?.total || 0)
     );
-
-    const countLabel = `${sorted.length} candidate${sorted.length !== 1 ? 's' : ''}`;
+    AgentUI._queueData = sorted;
 
     gate.style.display = 'block';
     gate.innerHTML = `
       <div style="margin-top:16px">
-
-        <!-- Queue header -->
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <div style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.1em;color:var(--text-muted)">
-            SCANNER RESULTS
-          </div>
+          <div style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.1em;color:var(--text-muted)">SCANNER RESULTS</div>
           <div style="background:var(--bg-raised);border:1px solid var(--border);border-radius:20px;padding:2px 10px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">
-            ${countLabel}
+            ${sorted.length} candidate${sorted.length !== 1 ? 's' : ''}
           </div>
           <div style="margin-left:auto;display:flex;gap:6px">
-            <button onclick="AgentUI._sortQueue('score')"  id="sortScore"  class="queue-sort-btn queue-sort-active" style="${AgentUI._sortBtnStyle(true)}">Score ↓</button>
-            <button onclick="AgentUI._sortQueue('cost')"   id="sortCost"                                            style="${AgentUI._sortBtnStyle(false)}">Cost ↑</button>
-            <button onclick="AgentUI._sortQueue('sector')" id="sortSector"                                          style="${AgentUI._sortBtnStyle(false)}">Sector</button>
+            <button onclick="AgentUI._sortQueue('score')"  id="sortScore"  style="${AgentUI._sortBtnStyle(true)}">Score ↓</button>
+            <button onclick="AgentUI._sortQueue('cost')"   id="sortCost"   style="${AgentUI._sortBtnStyle(false)}">Cost ↑</button>
+            <button onclick="AgentUI._sortQueue('sector')" id="sortSector" style="${AgentUI._sortBtnStyle(false)}">Sector</button>
           </div>
         </div>
-
-        <!-- Candidate rows -->
         <div id="candidateQueueList">
           ${sorted.map((entry, i) => AgentUI._renderQueueCard(entry, i)).join('')}
         </div>
-
       </div>
     `;
-
-    // Store sorted queue for re-sort
-    AgentUI._queueData = sorted;
   },
 
   _sortBtnStyle(active) {
@@ -174,35 +161,41 @@ const AgentUI = {
         (b.cioResult?.scores?.total || 0) - (a.cioResult?.scores?.total || 0));
     } else if (by === 'cost') {
       sorted = [...AgentUI._queueData].sort((a, b) => {
-        const ca = (a.optionsResult?.realPremium || a.optionsResult?.estimatedPremium || 999) * 100;
-        const cb = (b.optionsResult?.realPremium || b.optionsResult?.estimatedPremium || 999) * 100;
+        const ca = AgentUI._cheapestAffordable(a, 99999);
+        const cb = AgentUI._cheapestAffordable(b, 99999);
         return ca - cb;
       });
     } else {
       sorted = [...AgentUI._queueData].sort((a, b) =>
         (a.candidate?.sector || '').localeCompare(b.candidate?.sector || ''));
     }
-
-    // Update sort button styles
     ['score','cost','sector'].forEach(k => {
       const btn = document.getElementById(`sort${k.charAt(0).toUpperCase()+k.slice(1)}`);
       if (btn) btn.style.cssText = AgentUI._sortBtnStyle(k === by);
     });
-
     const list = document.getElementById('candidateQueueList');
     if (list) list.innerHTML = sorted.map((entry, i) => AgentUI._renderQueueCard(entry, i)).join('');
   },
 
+  _cheapestAffordable(entry, budget) {
+    const allCalls = entry.optionsRawCalls || [];
+    const allPuts  = entry.optionsRawPuts  || [];
+    const pool     = [...allCalls, ...allPuts].filter(c => (c.mark || 0) > 0);
+    if (!pool.length) return (entry.optionsResult?.estimatedPremium || 999) * 100;
+    const affordable = pool.filter(c => (c.mark * 100) <= budget);
+    const use = affordable.length ? affordable : pool;
+    return Math.min(...use.map(c => c.mark * 100));
+  },
+
   _renderQueueCard(entry, rank) {
-    const { candidate, quote, research, riskResult, cioResult, optionsResult, optionsRawCalls } = entry;
-    const scores   = cioResult?.scores || {};
-    const alert    = cioResult?.tradeAlert || {};
-    const total    = scores.total || 0;
-    const ticker   = candidate?.ticker || alert.ticker || '—';
-    const price    = quote?.regularMarketPrice || 0;
+    const { candidate, quote, research, riskResult, cioResult, optionsResult } = entry;
+    const scores    = cioResult?.scores || {};
+    const alert     = cioResult?.tradeAlert || {};
+    const total     = scores.total || 0;
+    const ticker    = candidate?.ticker || alert.ticker || '—';
+    const price     = quote?.regularMarketPrice || 0;
     const changePct = quote?.regularMarketChangePercent || 0;
 
-    // Score color + label
     const scoreColor = total >= 50 ? '#4ade80'
       : total >= 42 ? 'var(--cyan)'
       : total >= 35 ? 'var(--amber)'
@@ -213,59 +206,65 @@ const AgentUI = {
       : total >= 35 ? 'MONITOR'
       : 'WATCH ONLY';
 
-    const labelBg = total >= 50 ? 'rgba(74,222,128,0.1);border-color:#2a5c36'
-      : total >= 42 ? 'rgba(0,212,255,0.08);border-color:var(--cyan-dim)'
-      : total >= 35 ? 'rgba(255,193,7,0.08);border-color:var(--amber-dim)'
-      : 'rgba(255,61,87,0.06);border-color:var(--red-dim)';
+    const labelColor  = scoreColor;
+    const labelBorder = total >= 50 ? '#2a5c36'
+      : total >= 42 ? 'var(--cyan-dim)'
+      : total >= 35 ? 'var(--amber-dim)'
+      : 'var(--red-dim)';
+    const labelBg     = total >= 50 ? 'rgba(74,222,128,0.1)'
+      : total >= 42 ? 'rgba(0,212,255,0.08)'
+      : total >= 35 ? 'rgba(255,193,7,0.08)'
+      : 'rgba(255,61,87,0.06)';
 
     const scorePct = (total / 60) * 100;
+    const isQualified = total >= 35;
 
-    // Options cost
-    const premium  = optionsResult?.realPremium || optionsResult?.estimatedPremium;
-    const optCost  = premium ? `$${(premium * 100).toFixed(0)}` : '—';
-    const liveTag  = optionsResult?.liveDataAvailable
+    // Cheapest contract for header display (calls + puts combined)
+    const allContracts = [...(entry.optionsRawCalls || []), ...(entry.optionsRawPuts || [])]
+      .filter(c => (c.mark || 0) > 0);
+    const cheapest     = allContracts.length
+      ? Math.min(...allContracts.map(c => c.mark * 100))
+      : (optionsResult?.estimatedPremium || 0) * 100;
+    const optCostDisplay = cheapest > 0 ? `$${cheapest.toFixed(0)}` : '—';
+    const liveTag = optionsResult?.liveDataAvailable
       ? `<span style="font-size:9px;color:var(--green);margin-left:4px">📡 LIVE</span>`
       : `<span style="font-size:9px;color:var(--amber);margin-left:4px">est.</span>`;
 
-    const isQualified = total >= 35;
-    const cardId = `qcard-${ticker}`;
-    const detailId = `qdetail-${ticker}`;
-
-    // One-line thesis
-    const thesis = alert.thesis || research?.summary || '';
+    const thesis  = alert.thesis || research?.summary || '';
     const oneLiner = (thesis.match(/[^.!?]+[.!?]+/g)?.[0] || thesis).slice(0, 110);
 
-    // Rank badge style
     const rankStyle = rank === 0
       ? 'background:#2a2206;border:1px solid var(--amber);color:var(--amber)'
       : rank === 1
       ? 'background:var(--bg-raised);border:1px solid var(--border-bright);color:var(--text-muted)'
       : 'background:var(--bg-raised);border:1px solid var(--border);color:var(--text-dim)';
 
+    const cardId   = `qcard-${ticker}`;
+    const detailId = `qdetail-${ticker}`;
+
     return `
       <div id="${cardId}" style="background:var(--bg-raised);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;transition:border-color .15s">
 
-        <!-- HEADER ROW — always visible, click to expand -->
+        <!-- COLLAPSED HEADER ROW -->
         <div onclick="AgentUI._toggleQueueDetail('${ticker}')"
           style="display:grid;grid-template-columns:34px 88px 1fr 160px 140px 110px 110px 106px;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;user-select:none">
 
-          <!-- Rank -->
           <div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;${rankStyle}">
             ${rank + 1}
           </div>
 
-          <!-- Ticker + price -->
           <div>
             <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text-primary);letter-spacing:.04em">${ticker}</div>
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">$${price.toFixed(2)} <span style="color:${changePct >= 0 ? 'var(--green)' : 'var(--red)'}">${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%</span></div>
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">
+              $${price.toFixed(2)}
+              <span style="color:${changePct >= 0 ? 'var(--green)' : 'var(--red)'}">${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%</span>
+            </div>
           </div>
 
-          <!-- Thesis snippet -->
           <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:8px">
             ${oneLiner}
           </div>
 
-          <!-- Score bar -->
           <div style="display:flex;align-items:center;gap:6px">
             <div style="flex:1;height:4px;background:var(--bg-surface);border-radius:2px;overflow:hidden">
               <div style="height:100%;width:${scorePct}%;background:${scoreColor};border-radius:2px"></div>
@@ -273,23 +272,19 @@ const AgentUI = {
             <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:${scoreColor};white-space:nowrap">${total}/60</span>
           </div>
 
-          <!-- Score label pill -->
           <div>
-            <span style="padding:3px 8px;border-radius:4px;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.04em;background:${labelBg.split(';')[0].replace('background:','')};border:1px solid ${labelBg.split('border-color:')[1]};color:${scoreColor}">
+            <span style="padding:3px 8px;border-radius:4px;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.04em;background:${labelBg};border:1px solid ${labelBorder};color:${labelColor}">
               ${scoreLabel}
             </span>
           </div>
 
-          <!-- Options cost -->
           <div style="text-align:right">
-            <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--green)">${optCost} ${liveTag}</div>
-            <div style="font-size:10px;color:var(--text-dim)">per contract</div>
+            <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--green)">${optCostDisplay} ${liveTag}</div>
+            <div style="font-size:10px;color:var(--text-dim)">cheapest contract</div>
           </div>
 
-          <!-- Sector -->
           <div style="font-size:11px;color:var(--text-dim);text-align:right">${candidate?.sector || '—'}</div>
 
-          <!-- Action buttons — stop propagation so click doesn't toggle expand -->
           <div style="display:flex;gap:5px;justify-content:flex-end" onclick="event.stopPropagation()">
             <button onclick="AgentUI._queueLog('${ticker}')"
               style="padding:5px 10px;border-radius:4px;border:none;background:var(--green);color:#000;font-size:11px;font-weight:700;cursor:pointer;${!isQualified ? 'opacity:.45;cursor:not-allowed' : ''}"
@@ -304,14 +299,13 @@ const AgentUI = {
         <!-- EXPANDED DETAIL -->
         <div id="${detailId}" style="display:none;border-top:1px solid var(--border)">
 
-          <!-- Full beginner tip -->
           ${alert.beginnerTip ? `
           <div style="padding:10px 16px;background:rgba(0,212,255,0.04);border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:8px">
             <span style="font-size:14px;flex-shrink:0">💡</span>
             <div style="font-size:12px;color:var(--cyan);line-height:1.5">${alert.beginnerTip}</div>
           </div>` : ''}
 
-          <!-- Trade setup grid -->
+          <!-- Setup grid -->
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:14px 16px 10px">
             <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px">
               <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);font-weight:600;letter-spacing:.08em;margin-bottom:5px">ENTRY ZONE</div>
@@ -334,17 +328,24 @@ const AgentUI = {
             </div>
           </div>
 
-          <!-- Options tiers -->
+          <!-- OPTIONS TIERS — Calls + Puts -->
           <div style="padding:0 16px 14px">
-            <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);font-weight:600;letter-spacing:.08em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-              OPTIONS TIERS
-              ${optionsResult?.liveDataAvailable ? '<span style="font-size:9px;color:var(--green)">📡 LIVE</span>' : '<span style="font-size:9px;color:var(--amber)">estimated</span>'}
+            <!-- Header row with budget filter -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);font-weight:600;letter-spacing:.08em">
+                OPTIONS TIERS
+                ${optionsResult?.liveDataAvailable
+                  ? '<span style="font-size:9px;color:var(--green);margin-left:4px">📡 LIVE</span>'
+                  : '<span style="font-size:9px;color:var(--amber);margin-left:4px">estimated</span>'}
+              </div>
               <div style="margin-left:auto;display:flex;align-items:center;gap:5px">
                 <span style="font-size:10px;color:var(--text-muted)">Max budget:</span>
-                <select onchange="AgentUI._filterTiers('${ticker}', this.value)"
+                <select id="budget-${ticker}" onchange="AgentUI._filterTiers('${ticker}', this.value)"
                   style="font-family:var(--font-mono);font-size:11px;background:var(--bg-surface);border:1px solid var(--border-bright);border-radius:4px;padding:2px 6px;color:var(--cyan);cursor:pointer">
                   <option value="99999">Any price</option>
+                  <option value="50">Under $50</option>
                   <option value="100">Under $100</option>
+                  <option value="200">Under $200</option>
                   <option value="300">Under $300</option>
                   <option value="500">Under $500</option>
                   <option value="1000">Under $1,000</option>
@@ -352,12 +353,37 @@ const AgentUI = {
                 </select>
               </div>
             </div>
-            <div id="tiers-${ticker}" style="display:flex;gap:8px">
-              ${AgentUI._renderTiers(entry, 99999)}
+
+            <!-- CALLS row -->
+            <div style="margin-bottom:10px">
+              <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--green);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                📈 CALLS
+                <span style="color:var(--text-dim);font-weight:400">— profit if stock goes UP</span>
+                ${optionsResult?.callRecommendation?.thesis
+                  ? `<span style="color:var(--text-dim);font-weight:400;font-size:9px">· ${optionsResult.callRecommendation.thesis}</span>`
+                  : ''}
+              </div>
+              <div id="callTiers-${ticker}" style="display:flex;gap:8px">
+                ${AgentUI._buildCallTiers(entry, 99999)}
+              </div>
+            </div>
+
+            <!-- PUTS row -->
+            <div>
+              <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--red);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                📉 PUTS
+                <span style="color:var(--text-dim);font-weight:400">— profit if stock goes DOWN</span>
+                ${optionsResult?.putRecommendation?.thesis
+                  ? `<span style="color:var(--text-dim);font-weight:400;font-size:9px">· ${optionsResult.putRecommendation.thesis}</span>`
+                  : ''}
+              </div>
+              <div id="putTiers-${ticker}" style="display:flex;gap:8px">
+                ${AgentUI._buildPutTiers(entry, 99999)}
+              </div>
             </div>
           </div>
 
-          <!-- Thesis / Risks toggle -->
+          <!-- Thesis / breakdown toggle -->
           <div style="border-top:1px solid var(--border)">
             <button onclick="AgentUI._toggleThesis('${ticker}')" id="thesisBtn-${ticker}"
               style="width:100%;padding:9px 16px;background:none;border:none;font-family:var(--font-mono);font-size:11px;color:var(--cyan);cursor:pointer;text-align:left;letter-spacing:.06em">
@@ -385,7 +411,9 @@ const AgentUI = {
 
           <!-- Bottom action bar -->
           <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;background:var(--bg-surface)">
-            ${!isQualified ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--amber);flex:1">Score ${total}/60 — below 35 min. Consider watching.</span>` : `<span style="flex:1"></span>`}
+            ${!isQualified
+              ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--amber);flex:1">Score ${total}/60 — below 35 min. Consider watching.</span>`
+              : `<span style="flex:1"></span>`}
             <button onclick="AgentUI._queueSkip('${ticker}')"
               style="padding:9px 18px;border:1px solid var(--border-bright);border-radius:4px;background:var(--bg-raised);color:var(--text-muted);font-size:12px;font-weight:700;cursor:pointer">
               ⏭️ Skip
@@ -400,7 +428,173 @@ const AgentUI = {
               ✅ Log Trade
             </button>
           </div>
+        </div>
+      </div>
+    `;
+  },
 
+  // ── Budget filter — re-renders both call and put tier rows ───
+  _filterTiers(ticker, maxBudget) {
+    const budget = parseInt(maxBudget);
+    const entry  = AgentUI._queueData?.find(e => e.candidate?.ticker === ticker);
+    if (!entry) return;
+
+    const callEl = document.getElementById(`callTiers-${ticker}`);
+    const putEl  = document.getElementById(`putTiers-${ticker}`);
+    if (callEl) callEl.innerHTML = AgentUI._buildCallTiers(entry, budget);
+    if (putEl)  putEl.innerHTML  = AgentUI._buildPutTiers(entry, budget);
+  },
+
+  // ── CALL TIERS ───────────────────────────────────────────────
+  // Picks conservative (closest OTM / lowest cost within budget),
+  // standard (mid), aggressive (furthest OTM / cheapest).
+  // Budget is enforced FIRST — only contracts <= budget are shown.
+  // If nothing fits, shows cheapest 3 with OVER BUDGET badges.
+  _buildCallTiers(entry, maxBudget) {
+    const { optionsResult, optionsRawCalls } = entry;
+    const allCalls = (optionsRawCalls || []).filter(c => (c.mark || 0) > 0 && c.type !== 'put');
+
+    // Fall back to AI recommendation if no live chain
+    if (!allCalls.length) {
+      const rec = optionsResult?.callRecommendation || optionsResult;
+      const premium = rec?.estimatedPremium || optionsResult?.realPremium || optionsResult?.estimatedPremium;
+      if (!premium) return `<div style="flex:1;font-size:11px;color:var(--text-muted);padding:10px">No call data available</div>`;
+      const cost = premium * 100;
+      return AgentUI._oneTierCard('🟡', 'STANDARD', rec.strike || optionsResult.recommendedStrike, rec.expiry || optionsResult.recommendedExpiry, cost, null, null, cost <= maxBudget, 'AI recommended', 'call');
+    }
+
+    return AgentUI._buildTierRow(allCalls, maxBudget, 'call');
+  },
+
+  // ── PUT TIERS ────────────────────────────────────────────────
+  _buildPutTiers(entry, maxBudget) {
+    const { optionsResult, optionsRawPuts, optionsRawCalls, quote } = entry;
+    const underlying = quote?.regularMarketPrice || 0;
+
+    // Try dedicated put chain first, then filter raw calls pool by type
+    let allPuts = (optionsRawPuts || []).filter(c => (c.mark || 0) > 0);
+
+    // Some workers return all contracts in allCalls — filter by type field
+    if (!allPuts.length && optionsRawCalls?.length) {
+      allPuts = optionsRawCalls.filter(c => c.type === 'put' && (c.mark || 0) > 0);
+    }
+
+    // Fall back to AI put recommendation
+    if (!allPuts.length) {
+      const rec = optionsResult?.putRecommendation;
+      if (!rec?.estimatedPremium && !rec?.strike) {
+        // Synthesize approximate put from AI call data + underlying price
+        const callStrike  = optionsResult?.recommendedStrike || underlying;
+        const callExpiry  = optionsResult?.recommendedExpiry || '';
+        const callPremium = (optionsResult?.realPremium || optionsResult?.estimatedPremium || 2);
+        // ATM put is roughly same premium as ATM call (put-call parity)
+        const putStrike   = Math.round((underlying * 0.97) / 5) * 5; // ~3% OTM
+        const putPremium  = callPremium * 0.75; // OTM puts slightly cheaper
+        const cost        = putPremium * 100;
+        return AgentUI._oneTierCard('🟡', 'STANDARD', putStrike, callExpiry, cost, null, null, cost <= maxBudget, 'AI estimated · put-call parity', 'put');
+      }
+      const cost = (rec.estimatedPremium || 0) * 100;
+      return AgentUI._oneTierCard('🟡', 'STANDARD', rec.strike, rec.expiry, cost, null, null, cost <= maxBudget, rec.thesis || 'AI recommended', 'put');
+    }
+
+    return AgentUI._buildTierRow(allPuts, maxBudget, 'put');
+  },
+
+  // ── Shared tier-row builder ──────────────────────────────────
+  // THE KEY FIX: filter to budget first, pick tiers from that pool.
+  // Only fall back to full pool if nothing fits budget.
+  _buildTierRow(contracts, maxBudget, direction) {
+    // Sort by strike: calls ascending (closest OTM = lowest strike first),
+    // puts descending (closest OTM = highest strike first)
+    const sorted = direction === 'call'
+      ? [...contracts].sort((a, b) => a.strike - b.strike)
+      : [...contracts].sort((a, b) => b.strike - a.strike);
+
+    // Split into within-budget and over-budget
+    const withinBudget = sorted.filter(c => (c.mark * 100) <= maxBudget);
+    const overBudget   = sorted.filter(c => (c.mark * 100) >  maxBudget);
+
+    const noBudgetMatch = withinBudget.length === 0 && maxBudget < 99999;
+
+    // Use within-budget if we have any; otherwise cheapest available
+    const pool = withinBudget.length > 0
+      ? withinBudget
+      : [...sorted].sort((a, b) => a.mark - b.mark).slice(0, 6);
+
+    if (!pool.length) return `<div style="flex:1;font-size:11px;color:var(--text-muted);padding:10px">No contracts available</div>`;
+
+    // Pick 3 tiers: conservative = index 0 (closest OTM in budget),
+    // aggressive = last (furthest OTM / cheapest), standard = middle
+    const conservative = pool[0];
+    const aggressive   = pool[pool.length - 1];
+    const standard     = pool[Math.floor((pool.length - 1) / 2)];
+
+    // De-duplicate if pool is small
+    const seen  = new Set();
+    const tiers = [
+      { label: 'CONSERVATIVE', contract: conservative, note: direction === 'call' ? 'Closest to price · highest win odds' : 'Closest to price · highest win odds' },
+      { label: 'STANDARD',     contract: standard,     note: 'Middle ground' },
+      { label: 'AGGRESSIVE',   contract: aggressive,   note: direction === 'call' ? 'Cheapest · bigger % gain if right' : 'Cheapest · biggest % gain if drops hard' },
+    ].filter(t => {
+      if (!t.contract) return false;
+      const key = `${t.contract.strike}-${t.contract.expiry}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const overBudgetWarning = noBudgetMatch
+      ? `<div style="grid-column:1/-1;padding:6px 8px;background:rgba(255,193,7,0.08);border:1px solid var(--amber-dim);border-radius:4px;font-family:var(--font-mono);font-size:10px;color:var(--amber);margin-bottom:6px">
+           ⚠ No ${direction}s under $${maxBudget.toLocaleString()} — showing ${overBudget.length} cheapest available
+         </div>`
+      : '';
+
+    const emoji = { CONSERVATIVE: '🟢', STANDARD: '🟡', AGGRESSIVE: '🔴' };
+
+    return `
+      ${overBudgetWarning}
+      ${tiers.map(t => {
+        const mark = t.contract.mark || ((t.contract.bid + t.contract.ask) / 2) || 0;
+        const cost = mark * 100;
+        const affordable = cost <= maxBudget;
+        return AgentUI._oneTierCard(emoji[t.label], t.label, t.contract.strike, t.contract.expiry, cost, t.contract.bid, t.contract.ask, affordable, t.note, direction);
+      }).join('')}
+    `;
+  },
+
+  // ── Single tier card ─────────────────────────────────────────
+  _oneTierCard(emoji, label, strike, expiry, cost, bid, ask, affordable, note, direction) {
+    const isCall    = direction === 'call';
+    const labelColor = label === 'CONSERVATIVE' ? (isCall ? 'var(--green)' : 'var(--red)')
+      : label === 'STANDARD' ? 'var(--cyan)'
+      : 'var(--amber)';
+    const border    = affordable ? labelColor : 'var(--red)';
+    const costColor = affordable ? labelColor : 'var(--red)';
+
+    return `
+      <div style="flex:1;padding:9px 11px;background:var(--bg-surface);border:1px solid ${border};border-radius:6px;${!affordable ? 'opacity:.6' : ''}">
+        <div style="display:flex;align-items:flex-start;gap:5px;margin-bottom:4px">
+          <span style="font-size:12px">${emoji}</span>
+          <div style="flex:1">
+            <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;color:${labelColor};letter-spacing:.06em">${label}</div>
+            <div style="font-size:9px;color:var(--text-dim);margin-top:1px">${note}</div>
+          </div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:3px">
+          $${strike} ${isCall ? 'Call' : 'Put'} — ${expiry || '—'}
+        </div>
+        ${bid != null && ask != null
+          ? `<div style="font-size:10px;color:var(--text-muted)">Bid $${bid} / Ask $${ask}</div>`
+          : ''}
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
+          <span style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:${costColor}">
+            ${cost > 0 ? '$' + cost.toFixed(0) : '—'}
+          </span>
+          <span style="font-family:var(--font-mono);font-size:9px;padding:2px 5px;border-radius:3px;font-weight:700;
+            background:${affordable ? 'rgba(0,230,118,0.1)' : 'rgba(255,61,87,0.1)'};
+            color:${affordable ? 'var(--green)' : 'var(--red)'}">
+            ${affordable ? '✓ AFFORDABLE' : 'OVER BUDGET'}
+          </span>
         </div>
       </div>
     `;
@@ -424,85 +618,6 @@ const AgentUI = {
     if (btn) btn.innerHTML = isHidden
       ? `▲ Hide thesis &amp; breakdown`
       : `▼ Full thesis, risks &amp; score breakdown`;
-  },
-
-  _renderTiers(entry, maxBudget) {
-    const { optionsResult, optionsRawCalls } = entry;
-    const allCalls   = optionsRawCalls || Pipeline.state.results?.optionsRawCalls || [];
-    const underlying = optionsResult?.underlyingPrice || 0;
-
-    if (!allCalls.length) {
-      const premium = optionsResult?.realPremium || optionsResult?.estimatedPremium;
-      if (!premium) return `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:12px;flex:1">No live options data available</div>`;
-      const cost = premium * 100;
-      const affordable = cost <= maxBudget;
-      return AgentUI._renderOneTier('🟡', 'STANDARD', optionsResult.recommendedStrike, optionsResult.recommendedExpiry, cost, optionsResult.realBid, optionsResult.realAsk, affordable, 'Middle ground');
-    }
-
-    const otmCalls = [...allCalls]
-      .filter(c => c.strike > underlying && (c.mark || 0) > 0)
-      .sort((a, b) => a.strike - b.strike);
-
-    const pool = otmCalls.length >= 3 ? otmCalls
-      : [...allCalls].filter(c => (c.mark || 0) > 0).sort((a, b) => a.mark - b.mark);
-
-    if (!pool.length) return `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:12px;flex:1">No liquid contracts found</div>`;
-
-    const affordable = pool.filter(c => (c.mark * 100) <= maxBudget);
-    const displayPool = affordable.length >= 3 ? affordable : pool.slice(0, Math.min(pool.length, 6));
-
-    const conservative = displayPool[0];
-    const aggressive   = displayPool[displayPool.length - 1];
-    const standard     = displayPool[Math.floor(displayPool.length / 2)];
-
-    const seen = new Set();
-    const tiers = [
-      { emoji: '🟢', label: 'CONSERVATIVE', contract: conservative, note: 'Closest to price · highest win odds' },
-      { emoji: '🟡', label: 'STANDARD',     contract: standard,     note: 'Middle ground' },
-      { emoji: '🔴', label: 'AGGRESSIVE',   contract: aggressive,   note: 'Cheaper · bigger % gain if right' },
-    ].filter(t => {
-      if (!t.contract || seen.has(t.contract.strike)) return false;
-      seen.add(t.contract.strike);
-      return true;
-    });
-
-    return tiers.map(t => {
-      const mark = t.contract.mark || ((t.contract.bid + t.contract.ask) / 2) || 0;
-      const cost = mark * 100;
-      return AgentUI._renderOneTier(t.emoji, t.label, t.contract.strike, t.contract.expiry, cost, t.contract.bid, t.contract.ask, cost <= maxBudget, t.note);
-    }).join('');
-  },
-
-  _renderOneTier(emoji, label, strike, expiry, cost, bid, ask, affordable, note) {
-    const color  = label === 'CONSERVATIVE' ? 'var(--green)' : label === 'STANDARD' ? 'var(--cyan)' : 'var(--amber)';
-    const border = affordable ? color : 'var(--red)';
-    return `
-      <div style="flex:1;padding:9px 11px;background:var(--bg-surface);border:1px solid ${border};border-radius:6px;${!affordable ? 'opacity:.55' : ''}">
-        <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
-          <span>${emoji}</span>
-          <div>
-            <div style="font-family:var(--font-mono);font-size:9px;font-weight:700;color:${color};letter-spacing:.06em">${label}</div>
-            <div style="font-size:9px;color:var(--text-dim)">${note}</div>
-          </div>
-        </div>
-        <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text-primary)">$${strike} Call — ${expiry}</div>
-        ${bid && ask ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">Bid $${bid} / Ask $${ask}</div>` : ''}
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
-          <span style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:${affordable ? color : 'var(--red)'}">$${cost ? cost.toFixed(0) : '—'}</span>
-          <span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border-radius:3px;background:${affordable ? 'rgba(0,230,118,0.1)' : 'rgba(255,61,87,0.1)'};color:${affordable ? 'var(--green)' : 'var(--red)'};font-weight:700">
-            ${affordable ? '✓ AFFORDABLE' : 'OVER BUDGET'}
-          </span>
-        </div>
-      </div>
-    `;
-  },
-
-  _filterTiers(ticker, maxBudget) {
-    const tiersEl = document.getElementById(`tiers-${ticker}`);
-    if (!tiersEl || !AgentUI._queueData) return;
-    const entry = AgentUI._queueData.find(e => e.candidate?.ticker === ticker);
-    if (!entry) return;
-    tiersEl.innerHTML = AgentUI._renderTiers(entry, parseInt(maxBudget));
   },
 
   _renderScoreBars(scores) {
@@ -556,11 +671,10 @@ const AgentUI = {
       orderInstructions: executionPlan?.orderInstructions
     });
 
-    // Visually mark as logged
     const card = document.getElementById(`qcard-${ticker}`);
     if (card) {
       card.style.borderColor = 'var(--green)';
-      card.style.opacity = '0.7';
+      card.style.opacity     = '0.65';
       const detail = document.getElementById(`qdetail-${ticker}`);
       if (detail) detail.style.display = 'none';
     }
@@ -569,47 +683,45 @@ const AgentUI = {
 
   _queueWatch(ticker) {
     const card = document.getElementById(`qcard-${ticker}`);
-    if (card) {
-      const isWatching = card.style.borderColor === 'var(--amber)';
-      card.style.borderColor = isWatching ? 'var(--border)' : 'var(--amber)';
-    }
-    Utils.toast(`${ticker} ${card?.style.borderColor === 'var(--amber)' ? 'added to' : 'removed from'} watch`, 'info');
+    if (!card) return;
+    const watching = card.dataset.watching === '1';
+    card.dataset.watching  = watching ? '0' : '1';
+    card.style.borderColor = watching ? 'var(--border)' : 'var(--amber)';
+    Utils.toast(`${ticker} ${watching ? 'removed from' : 'added to'} watch`, 'info');
   },
 
   _queueSkip(ticker) {
     const card = document.getElementById(`qcard-${ticker}`);
     if (card) {
       card.style.transition = 'opacity .2s, max-height .25s';
-      card.style.opacity = '0';
+      card.style.opacity    = '0';
       setTimeout(() => { card.style.display = 'none'; }, 220);
     }
   },
 
   // ============================================================
-  // LEGACY single-candidate gate — kept for backward compat
+  // LEGACY single-gate — wraps into queue for consistency
   // ============================================================
   showApprovalGate(cioResult, riskResult, candidate, quote) {
-    // Wrap in a single-item queue so UI is consistent
     const syntheticEntry = {
       candidate,
       quote,
-      research:      { technicalScore: cioResult.scores?.technical, fundamentalScore: cioResult.scores?.fundamental, catalystScore: cioResult.scores?.catalyst, summary: cioResult.tradeAlert?.thesis, risks: cioResult.tradeAlert?.risks },
+      research: {
+        technicalScore:   cioResult.scores?.technical,
+        fundamentalScore: cioResult.scores?.fundamental,
+        catalystScore:    cioResult.scores?.catalyst,
+        summary:          cioResult.tradeAlert?.thesis,
+        risks:            cioResult.tradeAlert?.risks
+      },
       riskResult,
-      quantResult:   {},
+      quantResult:     {},
       cioResult,
-      optionsResult: Pipeline.state.results?.optionsAnalysis || {},
-      optionsRawCalls: Pipeline.state.results?.optionsRawCalls || [],
-      executionPlan: Pipeline.state.results?.executionPlan || {}
+      optionsResult:   Pipeline.state.results?.optionsAnalysis  || {},
+      optionsRawCalls: Pipeline.state.results?.optionsRawCalls  || [],
+      optionsRawPuts:  Pipeline.state.results?.optionsRawPuts   || [],
+      executionPlan:   Pipeline.state.results?.executionPlan    || {}
     };
     AgentUI.showCandidateQueue([syntheticEntry]);
-  },
-
-  toggleDetails(btn) {
-    const el = document.getElementById('tradeDetails');
-    if (!el) return;
-    const isHidden = el.style.display === 'none';
-    el.style.display = isHidden ? 'block' : 'none';
-    if (btn) btn.innerHTML = isHidden ? '▲ Hide Details' : '▼ Show Details — full thesis, risks, score breakdown';
   },
 
   renderScoreBar(label, score) {
@@ -627,14 +739,12 @@ const AgentUI = {
   },
 
   recordDecision(decision) {
-    const results = Pipeline.state.results;
+    const results   = Pipeline.state.results;
     if (!results) return;
-
     const alert     = results.finalRecommendation?.tradeAlert;
     const scores    = results.finalRecommendation?.scores;
     const options   = results.optionsAnalysis || {};
     const execution = results.executionPlan   || {};
-
     if (decision !== 'watch') {
       Pipeline.recordDecision(AgentUI.currentScanId, decision, alert ? {
         ...alert,
@@ -648,10 +758,9 @@ const AgentUI = {
         orderInstructions: execution.orderInstructions
       } : null);
     }
-
     Utils.toast(
       decision === 'approved' ? 'Logged to Journal ✓'
-      : decision === 'watch' ? 'Added to watch list'
+      : decision === 'watch'  ? 'Added to watch list'
       : 'Skipped', 'info'
     );
   },
