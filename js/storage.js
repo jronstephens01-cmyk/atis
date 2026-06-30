@@ -146,7 +146,23 @@ const Storage = {
   // --- PORTFOLIO ---
 
   getPortfolio() {
-    return Storage.get(STORAGE_KEYS.PORTFOLIO) || Storage.defaultPortfolio();
+    const portfolio = Storage.get(STORAGE_KEYS.PORTFOLIO) || Storage.defaultPortfolio();
+    // Self-heal: fix any portfolio saved with the old broken defaults
+    // (peakValue < currentValue, or cashAvailable stuck below currentValue
+    // with no positions open to explain the gap)
+    let healed = false;
+    if (portfolio.peakValue < portfolio.currentValue) {
+      portfolio.peakValue = portfolio.currentValue;
+      healed = true;
+    }
+    const investedValue = (portfolio.positions || []).reduce((sum, p) => sum + (p.value || p.totalCost || 0), 0);
+    const expectedCash  = portfolio.currentValue - investedValue;
+    if (portfolio.cashAvailable == null || (portfolio.positions.length === 0 && Math.abs(portfolio.cashAvailable - portfolio.currentValue) > 0.01)) {
+      portfolio.cashAvailable = expectedCash;
+      healed = true;
+    }
+    if (healed) Storage.savePortfolio(portfolio);
+    return portfolio;
   },
 
   savePortfolio(portfolio) {
@@ -156,10 +172,10 @@ const Storage = {
 
   defaultPortfolio() {
     return {
-      currentValue: 1500.00,
-      startingCapital: 1500.00,
-      peakValue: 500.00,
-      cashAvailable: 500.00,
+      currentValue: 2000.00,
+      startingCapital: 2000.00,
+      peakValue: 2000.00,
+      cashAvailable: 2000.00,
       positions: [],
       exposure: {
         totalInvested: 0,
