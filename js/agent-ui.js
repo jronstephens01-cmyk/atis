@@ -99,6 +99,9 @@ const AgentUI = {
       filtered_out:  'All candidates were filtered out by sector analysis. Market conditions may be unfavorable.',
       risk_rejected: 'Setup rejected by Risk Manager. Capital preservation rules prevent this trade.',
     };
+    // DEBUG: pull the actual reason text out of the stored results so it's visible
+    // on-screen without needing dev tools (helpful on mobile/iPad)
+    const debugReasons = Pipeline.state.results?.debugRiskReasons;
     const gate = document.getElementById('approvalGate');
     if (gate) {
       gate.style.display = 'block';
@@ -107,7 +110,12 @@ const AgentUI = {
           <div class="complete-icon">◈</div>
           <div class="complete-title">Scan Complete</div>
           <div class="complete-msg">${msgs[reason] || 'Pipeline finished.'}</div>
-          <button class="btn btn--secondary" onclick="AgentUI.resetPipeline()">↻ Run New Scan</button>
+          ${debugReasons ? `
+          <div style="margin-top:16px;text-align:left;max-width:700px;margin-left:auto;margin-right:auto;background:var(--bg-raised);border:1px solid var(--red-dim);border-radius:6px;padding:14px 16px">
+            <div style="font-family:var(--font-mono);font-size:10px;color:var(--red);letter-spacing:.08em;margin-bottom:8px;font-weight:700">⚠ DEBUG — RAW RISK MANAGER REASONS</div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-word">${debugReasons.replace(/ \|\| /g, '\n\n')}</div>
+          </div>` : ''}
+          <button class="btn btn--secondary" onclick="AgentUI.resetPipeline()" style="margin-top:14px">↻ Run New Scan</button>
         </div>
       `;
     }
