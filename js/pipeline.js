@@ -287,7 +287,13 @@ const Pipeline = {
       const approvedBatch = riskQuantBatch.filter(r => r.riskResult.decision !== 'REJECTED');
 
       if (!approvedBatch.length) {
-        AgentUI.setAgentStatus('agent5', 'rejected', 'All candidates rejected by Risk Manager');
+        // DEBUG: surface the actual reasons so we can see why on-screen (no devtools needed)
+        const debugLines = riskQuantBatch.map(r =>
+          `${r.candidate.ticker}: "${r.riskResult.reason || 'no reason given'}" (sent accountValue=${portfolio.currentValue}, cashAvailable=${portfolio.cashAvailable}, compositeScore=${(r.research.technicalScore + r.research.fundamentalScore + r.research.catalystScore) * 2})`
+        ).join(' || ');
+        results.debugRiskReasons = debugLines;
+        console.error('RISK MANAGER REJECTED ALL — reasons:', debugLines);
+        AgentUI.setAgentStatus('agent5', 'rejected', `All rejected — ${debugLines}`.slice(0, 500));
         Pipeline.finish(results, 'risk_rejected');
         return;
       }
